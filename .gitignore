@@ -3,6 +3,7 @@
 *.log
 *.pyc
 *.swp
+__pycache__/
 .DS_Store
 .atom/
 .build/
@@ -11,6 +12,24 @@
 .svn/
 .swiftpm/
 migrate_working_dir/
+
+# Python / Backend
+.venv/
+venv/
+ENV/
+*.egg-info/
+.pytest_cache/
+.coverage
+
+# Environment & Secrets
+.env
+.env.*
+.env.local
+!.env.example
+!backend/.env.example
+key.properties
+*.keystore
+*.jks
 
 # IntelliJ related
 *.iml
@@ -43,3 +62,8 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+android/build/
+android/app/build/
+.gradle/
+android/.gradle/
+.claude/

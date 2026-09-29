@@ -1,0 +1,89 @@
+# Cloud Build configuration for CoinScan Backend
+# Deploys containerized FastAPI service to Google Cloud Run
+#
+# Usage:
+#   gcloud builds submit --config=cloudbuild.yaml \
+#     --substitutions=_REGION=us-central1,_SERVICE_NAME=coinscan-backend
+#
+# Prerequisites:
+#   1. Enable Cloud Build, Cloud Run, and Artifact Registry APIs
+#   2. Create an Artifact Registry Docker repository:
+#      gcloud artifacts repositories create coinscan --repository-format=docker --location=us-central1
+#   3. Store secrets in Secret Manager:
+#      - DATABASE_URL (PostgreSQL connection string with sslmode=require)
+#      - SUPABASE_JWT_SECRET (Supabase JWT secret for HS256 verification)
+#      - SUPABASE_JWT_PUBLIC_KEY (Optional: Supabase JWT public key for RS256)
+#      - SUPABASE_URL (Supabase project URL)
+#      - SUPABASE_SERVICE_ROLE_KEY (Supabase admin key for account deletion)
+#      - REVENUECAT_WEBHOOK_SECRET (Webhook authorization token)
+#      - GEMINI_API_KEY
+#      - NUMISTA_API_KEY
+#      - METALS_API_KEY
+#      - EXCHANGERATE_API_KEY
+#      - API_SECRET
+#   4. Grant Cloud Run service account access to secrets
+
+substitutions:
+  _REGION: us-central1
+  _SERVICE_NAME: coinscan-backend
+  _REPO: coinscan
+
+steps:
+  # Step 1: Build the container image
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'build'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${SHORT_SHA}'
+      - '-t'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:latest'
+      - '-f'
+      - 'backend/Dockerfile'
+      - '.'
+
+  # Step 2: Push the container image to Artifact Registry
+  - name: 'gcr.io/cloud-builders/docker'
+    args:
+      - 'push'
+      - '--all-tags'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}'
+
+  # Step 3: Deploy to Cloud Run
+  - name: 'gcr.io/google.com/cloudsdktool/cloud-sdk'
+    entrypoint: gcloud
+    args:
+      - 'run'
+      - 'deploy'
+      - '${_SERVICE_NAME}'
+      - '--image'
+      - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${SHORT_SHA}'
+      - '--region'
+      - '${_REGION}'
+      - '--platform'
+      - 'managed'
+      - '--port'
+      - '8080'
+      - '--memory'
+      - '1Gi'
+      - '--cpu'
+      - '1'
+      - '--min-instances'
+      - '0'
+      - '--max-instances'
+      - '10'
+      - '--timeout'
+      - '30s'
+      - '--concurrency'
+      - '80'
+      - '--set-env-vars'
+      - 'APP_ENV=production,VISION_PROVIDER=gemini,LOG_LEVEL=info'
+      - '--set-secrets'
+      - 'DATABASE_URL=DATABASE_URL:latest,SUPABASE_JWT_SECRET=SUPABASE_JWT_SECRET:latest,SUPABASE_JWT_PUBLIC_KEY=SUPABASE_JWT_PUBLIC_KEY:latest,SUPABASE_URL=SUPABASE_URL:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,REVENUECAT_WEBHOOK_SECRET=REVENUECAT_WEBHOOK_SECRET:latest,GEMINI_API_KEY=GEMINI_API_KEY:latest,NUMISTA_API_KEY=NUMISTA_API_KEY:latest,METALS_API_KEY=METALS_API_KEY:latest,EXCHANGERATE_API_KEY=EXCHANGERATE_API_KEY:latest'
+      - '--allow-unauthenticated'
+
+images:
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:${SHORT_SHA}'
+  - '${_REGION}-docker.pkg.dev/${PROJECT_ID}/${_REPO}/${_SERVICE_NAME}:latest'
+
+options:
+  logging: CLOUD_LOGGING_ONLY

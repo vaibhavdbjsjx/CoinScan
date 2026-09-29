@@ -10,12 +10,18 @@ enum RarityLevel {
 
   String get displayName {
     switch (this) {
-      case RarityLevel.common: return 'Common';
-      case RarityLevel.uncommon: return 'Uncommon';
-      case RarityLevel.rare: return 'Rare';
-      case RarityLevel.veryRare: return 'Very Rare';
-      case RarityLevel.extremelyRare: return 'Extremely Rare';
-      case RarityLevel.museumGrade: return 'Museum Grade';
+      case RarityLevel.common:
+        return 'Common';
+      case RarityLevel.uncommon:
+        return 'Uncommon';
+      case RarityLevel.rare:
+        return 'Rare';
+      case RarityLevel.veryRare:
+        return 'Very Rare';
+      case RarityLevel.extremelyRare:
+        return 'Extremely Rare';
+      case RarityLevel.museumGrade:
+        return 'Museum Grade';
     }
   }
 }
@@ -46,7 +52,7 @@ class CollectibleModel {
   final String backImageUrl;
   final String historicalInfo;
   final String category;
-  
+
   // Market valuation
   final double retailPrice;
   final double auctionPrice;
@@ -56,11 +62,11 @@ class CollectibleModel {
   final double maxPrice;
   final double priceTrendPercentage; // 12.5 means +12.5%
   final String investmentRating; // e.g. "A+", "B"
-  
+
   // Error coin details (optional)
   final String? errorType;
   final String? errorDescription;
-  
+
   // Banknote security details (optional)
   final String? governorSignature;
   final String? serialNumber;
@@ -284,6 +290,6 @@ class SeriesCompletionModel {
     required this.targetYears,
   });
 
-  double get progressPercentage => totalCount == 0 ? 0.0 : ownedCount / totalCount;
+  double get progressPercentage =>
+      totalCount == 0 ? 0.0 : ownedCount / totalCount;
 }
-

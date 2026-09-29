@@ -7,7 +7,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>Coinvault Ai</string>
+	<string>CoinScan</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -15,7 +15,7 @@
 	<key>CFBundleInfoDictionaryVersion</key>
 	<string>6.0</string>
 	<key>CFBundleName</key>
-	<string>coinvault_ai</string>
+	<string>CoinScan</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
@@ -47,6 +47,10 @@
 			</array>
 		</dict>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>CoinScan uses your camera to photograph coins for identification. The camera is only activated when you choose to scan a coin.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>CoinScan can import photos of coins from your photo library so you can identify coins you have already photographed.</string>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
 	<key>UILaunchStoryboardName</key>
@@ -65,6 +69,19 @@
 		<string>UIInterfaceOrientationPortraitUpsideDown</string>
 		<string>UIInterfaceOrientationLandscapeLeft</string>
 		<string>UIInterfaceOrientationLandscapeRight</string>
+	</array>
+	<key>CFBundleURLTypes</key>
+	<array>
+		<dict>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>CFBundleURLName</key>
+			<string>com.coinvault.coinvaultai</string>
+			<key>CFBundleURLSchemes</key>
+			<array>
+				<string>com.coinvault.coinvaultai</string>
+			</array>
+		</dict>
 	</array>
 </dict>
 </plist>

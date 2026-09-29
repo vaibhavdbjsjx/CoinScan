@@ -1,4 +1,3 @@
-import 'dart:math';
 import '../storage/models.dart';
 
 class MockApi {
@@ -27,13 +26,15 @@ class MockApi {
         'Edge lettering displays correct spacing and font style matching Philadelphia dies.',
         'High relief detail sharp and consistent with master hub strikes.',
         'Surface finish exhibits correct satin texture from original minting processes.',
-        'Gold content verified at approximately 90.0% through acoustic density modeling.'
+        'Gold content verified at approximately 90.0% through acoustic density modeling.',
       ],
       estimatedGrade: 'MS67',
-      gradeExplanation: 'Exceptional strike with nearly pristine golden-orange luster. Minor bag marks on obverse field, but overall design is incredibly sharp and fully struck. Luster remains deeply reflective.',
+      gradeExplanation:
+          'Exceptional strike with nearly pristine golden-orange luster. Minor bag marks on obverse field, but overall design is incredibly sharp and fully struck. Luster remains deeply reflective.',
       frontImageUrl: 'saint_gaudens_front',
       backImageUrl: 'saint_gaudens_back',
-      historicalInfo: 'Commissioned by President Theodore Roosevelt in his effort to beautify American coinage, this Ultra High Relief version represents the pinnacle of American numismatic art. Only about 20 specimens of this relief style are known to exist, making it one of the absolute crown jewels of coin collecting.',
+      historicalInfo:
+          'Commissioned by President Theodore Roosevelt in his effort to beautify American coinage, this Ultra High Relief version represents the pinnacle of American numismatic art. Only about 20 specimens of this relief style are known to exist, making it one of the absolute crown jewels of coin collecting.',
       category: 'Gold Coins',
       retailPrice: 2850000,
       auctionPrice: 3100000,
@@ -67,13 +68,15 @@ class MockApi {
         'Obverse displays standard high-crested helmet with three olive leaves.',
         'Incuse square reverse displays standard owl, olive sprig, and crescent moon.',
         'Weight falls correctly within Attica standard distribution of 17.15g - 17.25g.',
-        'Metal analysis indicates ancient Laurion silver mines chemical signature.'
+        'Metal analysis indicates ancient Laurion silver mines chemical signature.',
       ],
       estimatedGrade: 'Choice XF (Ch XF)',
-      gradeExplanation: 'Extremely fine details on owl features. Flann is broad and well-centered. Excellent metal quality with slight cabinet toning. Clear incuse square on the reverse.',
+      gradeExplanation:
+          'Extremely fine details on owl features. Flann is broad and well-centered. Excellent metal quality with slight cabinet toning. Clear incuse square on the reverse.',
       frontImageUrl: 'athenian_owl_front',
       backImageUrl: 'athenian_owl_back',
-      historicalInfo: 'The Silver Tetradrachm, widely known as the "Owl," was the most influential trade coin of the Classical Greek era. Its high silver purity made it accepted worldwide, funding the construction of the Parthenon and Athenian military campaigns during the Peloponnesian Wars.',
+      historicalInfo:
+          'The Silver Tetradrachm, widely known as the "Owl," was the most influential trade coin of the Classical Greek era. Its high silver purity made it accepted worldwide, funding the construction of the Parthenon and Athenian military campaigns during the Peloponnesian Wars.',
       category: 'Ancient Coins',
       retailPrice: 4200,
       auctionPrice: 4600,
@@ -106,13 +109,15 @@ class MockApi {
       authenticityReasons: [
         'Distinct, dramatic double image visible on LIBERTY and IN GOD WE TRUST.',
         'Clear doubling on the date 1955, with the second image shifted slightly clockwise.',
-        'Obverse die markers verified (specific die polish lines near Lincoln shoulder).'
+        'Obverse die markers verified (specific die polish lines near Lincoln shoulder).',
       ],
       estimatedGrade: 'AU58',
-      gradeExplanation: 'Almost uncirculated with trace amounts of wear on the highest points of Lincoln\'s cheek and jaw. Retains original mint red luster near the lettering.',
+      gradeExplanation:
+          'Almost uncirculated with trace amounts of wear on the highest points of Lincoln\'s cheek and jaw. Retains original mint red luster near the lettering.',
       frontImageUrl: 'lincoln_ddo_front',
       backImageUrl: 'lincoln_ddo_back',
-      historicalInfo: 'One of the most famous error coins in US history, the 1955 Doubled Die Obverse occurred when a working die was misaligned during production. About 20,000 to 24,000 coins were minted and released before operators noticed, mixed into standard wheat cent shipments.',
+      historicalInfo:
+          'One of the most famous error coins in US history, the 1955 Doubled Die Obverse occurred when a working die was misaligned during production. About 20,000 to 24,000 coins were minted and released before operators noticed, mixed into standard wheat cent shipments.',
       category: 'Error Coins',
       retailPrice: 2850,
       auctionPrice: 3100,
@@ -146,13 +151,15 @@ class MockApi {
         'Engravings display high fidelity with razor-sharp microprinting details.',
         'Blue seal and serial numbers show authentic ink bleed typical of 1918 flat-plate printing.',
         'Paper stock displays correct red and blue security threads embedded natively.',
-        'Governor signature matches registered historical plate archives.'
+        'Governor signature matches registered historical plate archives.',
       ],
       estimatedGrade: 'Choice VF35',
-      gradeExplanation: 'Very fine banknote. Clean and crisp paper structure. Three vertical folds visible under backlighting, but paper color remains vibrant. No pinholes, tears, or soil marks.',
+      gradeExplanation:
+          'Very fine banknote. Clean and crisp paper structure. Three vertical folds visible under backlighting, but paper color remains vibrant. No pinholes, tears, or soil marks.',
       frontImageUrl: 'hamilton_1000_front',
       backImageUrl: 'hamilton_1000_back',
-      historicalInfo: 'High-denomination currency notes were primarily used for high-value bank-to-bank settlements. The 1918 Series featured Alexander Hamilton on the obverse, and a soaring American eagle on the reverse. Today, very few remain in private hands, with most having been redeemed and destroyed by the Treasury.',
+      historicalInfo:
+          'High-denomination currency notes were primarily used for high-value bank-to-bank settlements. The 1918 Series featured Alexander Hamilton on the obverse, and a soaring American eagle on the reverse. Today, very few remain in private hands, with most having been redeemed and destroyed by the Treasury.',
       category: 'Bank Notes',
       retailPrice: 135000,
       auctionPrice: 155000,
@@ -189,13 +196,15 @@ class MockApi {
       authenticityReasons: [
         'CC mint mark displays perfect alignment and size matching 1882 dies.',
         'Denticles around the rim are fully sharp and complete.',
-        'Specific silver alloy density matches original specifications.'
+        'Specific silver alloy density matches original specifications.',
       ],
       estimatedGrade: 'MS65',
-      gradeExplanation: 'Mint State 65. Features an incredibly strong Carson City strike with booming original luster. Barely noticeable contact marks on the cheek of Liberty. Reverse is virtually flawless.',
+      gradeExplanation:
+          'Mint State 65. Features an incredibly strong Carson City strike with booming original luster. Barely noticeable contact marks on the cheek of Liberty. Reverse is virtually flawless.',
       frontImageUrl: 'morgan_cc_front',
       backImageUrl: 'morgan_cc_back',
-      historicalInfo: 'Minted in the legendary frontier city of Carson City, Nevada, using silver from the Comstock Lode. Morgan silver dollars from CC are highly coveted due to their association with the Wild West and lower mintages compared to Philadelphia and New Orleans.',
+      historicalInfo:
+          'Minted in the legendary frontier city of Carson City, Nevada, using silver from the Comstock Lode. Morgan silver dollars from CC are highly coveted due to their association with the Wild West and lower mintages compared to Philadelphia and New Orleans.',
       category: 'Silver Coins',
       retailPrice: 650,
       auctionPrice: 720,
@@ -222,7 +231,8 @@ class MockApi {
       purchaseLocation: 'Heritage Auctions',
       seller: 'Heritage Auctions Inc.',
       storageLocation: 'Bank Safe Deposit Box B-12',
-      notes: 'Acquired in a beautiful slab from NGC. Under-graded in my opinion, could potentially cross over to MS66.',
+      notes:
+          'Acquired in a beautiful slab from NGC. Under-graded in my opinion, could potentially cross over to MS66.',
       isFavorite: true,
     ),
     PortfolioItemModel(
@@ -233,7 +243,8 @@ class MockApi {
       purchaseLocation: 'CNG Coins',
       seller: 'Classical Numismatic Group',
       storageLocation: 'Home Display Cabinet Vault',
-      notes: 'Gorgeous cabinet toning with deep blues and purples. Beautiful history.',
+      notes:
+          'Gorgeous cabinet toning with deep blues and purples. Beautiful history.',
       isFavorite: false,
     ),
   ];
@@ -248,7 +259,8 @@ class MockApi {
       id: 'm_1',
       collectible: collectibles[1], // Owl
       sellerName: 'Marcus Aurelius',
-      sellerAvatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150',
+      sellerAvatar:
+          'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&q=80&w=150',
       isSellerVerified: true,
       price: 4100,
       status: 'active',
@@ -260,7 +272,8 @@ class MockApi {
       id: 'm_2',
       collectible: collectibles[2], // Lincoln DDO
       sellerName: 'Penny Collector LLC',
-      sellerAvatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=150',
+      sellerAvatar:
+          'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&q=80&w=150',
       isSellerVerified: true,
       price: 2750,
       status: 'active',
@@ -272,7 +285,8 @@ class MockApi {
       id: 'm_3',
       collectible: collectibles[4], // Morgan
       sellerName: 'Nevada Silver Co',
-      sellerAvatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=150',
+      sellerAvatar:
+          'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&q=80&w=150',
       isSellerVerified: false,
       price: 630,
       status: 'active',
@@ -292,7 +306,8 @@ class MockApi {
       id: 'l_1',
       title: 'How to Grade Coins: The Sheldon Scale',
       category: 'Coin Basics',
-      body: 'The Sheldon Scale is a 70-point coin grading scale used by numismatists to determine the condition and value of coins. Established in 1949 by Dr. William H. Sheldon, it ranges from Poor (P-1) to Perfect Mint State (MS-70). Understanding these grades is crucial because a single grade point difference (e.g. MS64 vs MS65) can double or triple a coin\'s market value. Key visual cues include strike sharpness, luster depth, and contact marks.',
+      body:
+          'The Sheldon Scale is a 70-point coin grading scale used by numismatists to determine the condition and value of coins. Established in 1949 by Dr. William H. Sheldon, it ranges from Poor (P-1) to Perfect Mint State (MS-70). Understanding these grades is crucial because a single grade point difference (e.g. MS64 vs MS65) can double or triple a coin\'s market value. Key visual cues include strike sharpness, luster depth, and contact marks.',
       author: 'Dr. John Numis',
       readTime: '6 min read',
       imageUrl: 'lesson_grading',
@@ -302,7 +317,8 @@ class MockApi {
       id: 'l_2',
       title: 'Detecting Counterfeit Gold Coins',
       category: 'Counterfeit Detection',
-      body: 'Counterfeit gold coins are increasingly sophisticated, but specific tests remain definitive. First, verify weight with a high-precision scale down to 0.001g. Genuine coins possess exact dimensions (diameter and thickness). Second, check the edge reeding; counterfeits often have uneven, shallow, or merged reeding lines. Third, study the surface under 10x magnification. Look for microscopic pimples or bubbles, which indicate casting rather than striking with professional minting dies.',
+      body:
+          'Counterfeit gold coins are increasingly sophisticated, but specific tests remain definitive. First, verify weight with a high-precision scale down to 0.001g. Genuine coins possess exact dimensions (diameter and thickness). Second, check the edge reeding; counterfeits often have uneven, shallow, or merged reeding lines. Third, study the surface under 10x magnification. Look for microscopic pimples or bubbles, which indicate casting rather than striking with professional minting dies.',
       author: 'Elena Rostova, Expert Authenticator',
       readTime: '8 min read',
       imageUrl: 'lesson_counterfeit',
@@ -312,7 +328,8 @@ class MockApi {
       id: 'l_3',
       title: 'Understanding Mint Errors and Varieties',
       category: 'Mint Errors',
-      body: 'A mint error is a mistake made during the manufacturing process at the mint, resulting in unique abnormalities. Popular error types include Off-Center Strikes (where the planchet is not centered under the dies), Clipped Planchets (where the coin metal blank is cut improperly), and Doubled Dies (where the die itself has a doubled design, leaving a double impression on struck coins). Error coins are highly prized by specialists due to their dramatic visual appeal and extreme rarity.',
+      body:
+          'A mint error is a mistake made during the manufacturing process at the mint, resulting in unique abnormalities. Popular error types include Off-Center Strikes (where the planchet is not centered under the dies), Clipped Planchets (where the coin metal blank is cut improperly), and Doubled Dies (where the die itself has a doubled design, leaving a double impression on struck coins). Error coins are highly prized by specialists due to their dramatic visual appeal and extreme rarity.',
       author: 'Arthur Vance',
       readTime: '5 min read',
       imageUrl: 'lesson_errors',
@@ -364,35 +381,18 @@ class MockApi {
     return achievements;
   }
 
-  // Generate realistic historical pricing trends for charts
-  static List<double> getPriceHistory(String id, String duration) {
-    double basePrice = 1000.0;
-    for (var c in collectibles) {
-      if (c.id == id) {
-        basePrice = c.retailPrice;
-        break;
-      }
-    }
-
-    int pointsCount = 6;
-    if (duration == '1 Month') pointsCount = 4;
-    if (duration == '6 Months') pointsCount = 6;
-    if (duration == '1 Year') pointsCount = 12;
-    if (duration == '5 Years') pointsCount = 5;
-    if (duration == 'All Time') pointsCount = 10;
-
-    Random rand = Random(id.hashCode + duration.hashCode);
-    List<double> prices = [];
-    double current = basePrice * 0.8; // Start below retail
-
-    for (int i = 0; i < pointsCount - 1; i++) {
-      prices.add(current);
-      double factor = 1.0 + (rand.nextDouble() * 0.08 - 0.02); // upward bias
-      current = current * factor;
-    }
-    prices.add(basePrice); // End at current retail price
-
-    return prices;
+  /// Historical price series for charts.
+  ///
+  /// No historical market-price source is connected, so this always returns an
+  /// empty list and the UI shows its "trend unavailable" state. Repeating the
+  /// current value across 1 month / 1 year / 5 years would present an invented
+  /// price history as real data.
+  static List<double> getPriceHistory(
+    String id,
+    String duration, {
+    double? baseOverride,
+  }) {
+    return const <double>[];
   }
 
   // Simulate scanning pipeline with delays and trivia
@@ -405,7 +405,8 @@ class MockApi {
   static CollectorProfileModel getCollectorProfile() {
     return CollectorProfileModel(
       username: 'Vaibhav Sharma',
-      bio: 'Numismatist since 2012. Passionate collector of early US gold strikes, silver crown pieces, and classical Athenian tetradrachms.',
+      bio:
+          'Numismatist since 2012. Passionate collector of early US gold strikes, silver crown pieces, and classical Athenian tetradrachms.',
       rankName: 'Ancient Coin Master',
       level: 12,
       globalRanking: 342,
@@ -426,8 +427,20 @@ class MockApi {
         country: 'United States',
         totalCount: 12,
         ownedCount: 1,
-        description: 'Complete the prestigious Augustus Saint-Gaudens gold double eagle issues from 1907 to 1933.',
-        targetYears: const ['1907', '1908', '1910', '1911', '1914', '1915', '1920', '1924', '1928', '1933'],
+        description:
+            'Complete the prestigious Augustus Saint-Gaudens gold double eagle issues from 1907 to 1933.',
+        targetYears: const [
+          '1907',
+          '1908',
+          '1910',
+          '1911',
+          '1914',
+          '1915',
+          '1920',
+          '1924',
+          '1928',
+          '1933',
+        ],
       ),
       SeriesCompletionModel(
         id: 'ser_morgan_dollar',
@@ -435,8 +448,20 @@ class MockApi {
         country: 'United States',
         totalCount: 24,
         ownedCount: 1,
-        description: 'Amass the iconic Gilded Age silver dollars minted at Philadelphia, San Francisco, and Carson City.',
-        targetYears: const ['1878', '1880', '1882', '1884', '1885', '1890', '1893', '1895', '1904', '1921'],
+        description:
+            'Amass the iconic Gilded Age silver dollars minted at Philadelphia, San Francisco, and Carson City.',
+        targetYears: const [
+          '1878',
+          '1880',
+          '1882',
+          '1884',
+          '1885',
+          '1890',
+          '1893',
+          '1895',
+          '1904',
+          '1921',
+        ],
       ),
       SeriesCompletionModel(
         id: 'ser_athenian_owl',
@@ -444,8 +469,15 @@ class MockApi {
         country: 'Ancient Greece',
         totalCount: 5,
         ownedCount: 1,
-        description: 'Acquire high-grade variations of the historical Athenian Owl coins minted between 454 BC and 404 BC.',
-        targetYears: const ['c. 454 BC', 'c. 440 BC', 'c. 420 BC', 'c. 410 BC', 'c. 404 BC'],
+        description:
+            'Acquire high-grade variations of the historical Athenian Owl coins minted between 454 BC and 404 BC.',
+        targetYears: const [
+          'c. 454 BC',
+          'c. 440 BC',
+          'c. 420 BC',
+          'c. 410 BC',
+          'c. 404 BC',
+        ],
       ),
     ];
   }

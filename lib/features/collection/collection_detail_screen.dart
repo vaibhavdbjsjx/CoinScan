@@ -1,4 +1,6 @@
+import 'dart:io';
 import 'dart:math';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 import 'package:fl_chart/fl_chart.dart';
@@ -7,16 +9,22 @@ import '../../core/theme/theme.dart';
 import '../../core/theme/typography.dart';
 import '../../core/widgets/premium_widgets.dart';
 import '../../core/storage/models.dart';
+import '../../core/storage/collection_storage_service.dart';
 import '../../core/network/mock_api.dart';
 import '../../core/utils/pdf_generator.dart';
 
 class CollectionDetailScreen extends StatefulWidget {
-  final CollectibleModel collectible;
+  final CollectibleModel? collectible;
+  final VaultCoinItem? vaultItem;
 
   const CollectionDetailScreen({
-    Key? key,
-    required this.collectible,
-  }) : super(key: key);
+    super.key,
+    this.collectible,
+    this.vaultItem,
+  }) : assert(collectible != null || vaultItem != null);
+
+  CollectibleModel get resolvedCollectible =>
+      vaultItem != null ? vaultItem!.toCollectibleModel() : collectible!;
 
   @override
   State<CollectionDetailScreen> createState() => _CollectionDetailScreenState();
@@ -38,20 +46,122 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
   @override
   void initState() {
     super.initState();
-    // Pre-populate if this is already in mock portfolio
-    final portfolioItems = MockApi.getPortfolioItems();
-    final matchIndex = portfolioItems.indexWhere((p) => p.collectible.id == widget.collectible.id);
-    if (matchIndex != -1) {
+    if (widget.vaultItem != null) {
       _isSavedInVault = true;
-      final match = portfolioItems[matchIndex];
-      _purchasePriceController.text = match.purchasePrice.toStringAsFixed(0);
-      _purchaseLocationController.text = match.purchaseLocation;
-      _notesController.text = match.notes;
-      _storageLocation = match.storageLocation;
+      final v = widget.vaultItem!;
+      // Only a price the user actually entered. Pre-filling the estimate here
+      // would silently save it as the purchase price on the next edit.
+      _purchasePriceController.text = v.purchasePrice != null
+          ? v.purchasePrice!.toStringAsFixed(0)
+          : '';
+      _purchaseLocationController.text = v.storageLocation ?? 'Home Vault';
+      _notesController.text = v.notes ?? '';
+      _storageLocation = v.storageLocation ?? 'Home Vault';
     } else {
-      _purchasePriceController.text = (widget.collectible.retailPrice * 0.9).toStringAsFixed(0);
-      _purchaseLocationController.text = 'Numismatic Dealer';
-      _notesController.text = 'Scanned and identified using CoinVault AI.';
+      final c = widget.resolvedCollectible;
+      final existing = CollectionStorageService.instance.items.where(
+        (p) => p.coinName.toLowerCase() == c.name.toLowerCase() || p.id == c.id,
+      );
+      if (existing.isNotEmpty) {
+        final match = existing.first;
+        _isSavedInVault = true;
+        // Only a price the user actually entered; never pre-fill an estimate
+        // that would then be saved as if it were the real purchase price.
+        _purchasePriceController.text = match.purchasePrice != null
+            ? match.purchasePrice!.toStringAsFixed(0)
+            : '';
+        _purchaseLocationController.text = match.storageLocation ?? 'Home Vault';
+        _notesController.text = match.notes ?? '';
+        _storageLocation = match.storageLocation ?? 'Home Vault';
+      } else {
+        _purchasePriceController.text = '';
+        _purchaseLocationController.text = 'Numismatic Dealer';
+        _notesController.text = 'Identified in CoinScan.';
+      }
+    }
+  }
+
+  Future<void> _deleteFromVault() async {
+    final c = widget.resolvedCollectible;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('Remove from Vault?'),
+        content: Text('Are you sure you want to remove "${c.name}" from your collection vault?'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('Remove', style: TextStyle(color: AppColors.crimson)),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed == true && widget.vaultItem != null) {
+      await CollectionStorageService.instance.deleteItem(widget.vaultItem!.id);
+      if (mounted) {
+        Navigator.pop(context, true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: AppColors.crimson,
+            content: Text('Coin removed from vault.'),
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _saveVaultChanges() async {
+    if (widget.vaultItem != null) {
+      final price = double.tryParse(_purchasePriceController.text);
+      final updated = widget.vaultItem!.copyWith(
+        purchasePrice: price,
+        storageLocation: _storageLocation,
+        notes: _notesController.text,
+      );
+      await CollectionStorageService.instance.saveItem(updated);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: AppColors.emerald,
+            content: Text('Vault notes and details saved.'),
+          ),
+        );
+      }
+    } else {
+      final c = widget.resolvedCollectible;
+      final newItem = VaultCoinItem(
+        id: 'vault_${c.id}_${DateTime.now().millisecondsSinceEpoch}',
+        coinName: c.name,
+        country: c.country,
+        denomination: c.denomination,
+        year: c.year,
+        mintMark: c.mintMark,
+        composition: c.composition,
+        weightG: c.weightG,
+        diameterMm: c.diameterMm,
+        currentEstimatedValue: c.retailPrice > 0 ? c.retailPrice : null,
+        initialValuationSnapshot: c.retailPrice > 0 ? c.retailPrice : null,
+        confidenceScore: c.authenticityConfidence,
+        purchasePrice: double.tryParse(_purchasePriceController.text),
+        storageLocation: _storageLocation,
+        notes: _notesController.text,
+        dateAdded: DateTime.now(),
+      );
+      await CollectionStorageService.instance.saveItem(newItem);
+      if (mounted) {
+        setState(() => _isSavedInVault = true);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            backgroundColor: AppColors.emerald,
+            content: Text('Saved to your Collection Vault.'),
+          ),
+        );
+      }
     }
   }
 
@@ -64,13 +174,15 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
   }
 
   Future<void> _exportPdfReport() async {
-    final double? price = _isSavedInVault ? double.tryParse(_purchasePriceController.text) : null;
+    final double? price = _isSavedInVault
+        ? double.tryParse(_purchasePriceController.text)
+        : null;
     final String? storage = _isSavedInVault ? _storageLocation : null;
     final String? notesVal = _isSavedInVault ? _notesController.text : null;
-    
+
     try {
       final file = await PdfGenerator.generateCollectibleReport(
-        widget.collectible,
+        widget.resolvedCollectible,
         purchasePrice: price,
         storageLocation: storage,
         notes: notesVal,
@@ -101,20 +213,68 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
     }
   }
 
+  Widget _buildCoinVisual(CollectibleModel c) {
+    final imagePath = _isFrontView
+        ? widget.vaultItem?.frontImagePath
+        : widget.vaultItem?.reverseImagePath;
+    final hasRealImage = !kIsWeb &&
+        imagePath != null &&
+        imagePath.isNotEmpty &&
+        File(imagePath).existsSync();
+
+    if (hasRealImage) {
+      return ClipOval(
+        child: Image.file(
+          File(imagePath),
+          height: 180,
+          width: 180,
+          fit: BoxFit.cover,
+        ),
+      );
+    }
+
+    return Container(
+      height: 180,
+      width: 180,
+      decoration: const BoxDecoration(
+        shape: BoxShape.circle,
+      ),
+      child: CustomPaint(
+        painter: DetailedCoinGraphicPainter(
+          collectible: c,
+          isFront: _isFrontView,
+        ),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final c = widget.collectible;
-    final prices = MockApi.getPriceHistory(c.id, _selectedChartDuration);
+    final c = widget.resolvedCollectible;
+    final basePrice = widget.vaultItem?.currentEstimatedValue ?? c.retailPrice;
+    final prices = MockApi.getPriceHistory(
+      c.id,
+      _selectedChartDuration,
+      baseOverride: basePrice,
+    );
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(c.type == CollectibleType.coin ? 'Coin Analysis' : 'Banknote Analysis'),
+        title: Text(
+          c.type == CollectibleType.coin
+              ? 'Coin Identification'
+              : 'Banknote Identification',
+        ),
         actions: [
           IconButton(
             icon: Icon(
-              _hasPriceAlert ? Icons.notifications_active : Icons.notifications_none,
-              color: _hasPriceAlert ? AppColors.goldDark : AppColors.textPrimary,
+              _hasPriceAlert
+                  ? Icons.notifications_active
+                  : Icons.notifications_none,
+              color: _hasPriceAlert
+                  ? AppColors.goldDark
+                  : AppColors.textPrimary,
             ),
             onPressed: () {
               setState(() {
@@ -124,7 +284,9 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                 SnackBar(
                   backgroundColor: AppColors.goldDark,
                   content: Text(
-                    _hasPriceAlert ? 'Price alerts enabled for this item.' : 'Price alerts disabled.',
+                    _hasPriceAlert
+                        ? 'Price alerts enabled for this item.'
+                        : 'Price alerts disabled.',
                     style: AppTypography.buttonText,
                   ),
                 ),
@@ -135,6 +297,12 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
             icon: const Icon(Icons.share_outlined),
             onPressed: _exportPdfReport,
           ),
+          if (widget.vaultItem != null)
+            IconButton(
+              icon: const Icon(Icons.delete_outline, color: AppColors.crimson),
+              tooltip: 'Remove from Vault',
+              onPressed: _deleteFromVault,
+            ),
         ],
       ),
       body: SingleChildScrollView(
@@ -152,80 +320,91 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                         _isFrontView = !_isFrontView;
                       });
                     },
-                    child: Container(
-                      height: 260,
-                      width: 260,
-                      decoration: BoxDecoration(
-                        borderRadius: BorderRadius.circular(24),
-                        border: Border.all(color: AppColors.borderLight, width: 1.5),
-                        boxShadow: AppTheme.premiumShadow,
-                      ),
-                      clipBehavior: Clip.antiAlias,
-                      child: PhotoStudioViewer(
-                        backgroundType: _selectedStudioBg,
-                        child: Container(
-                          height: 180,
-                          width: 180,
-                          decoration: const BoxDecoration(
-                            shape: BoxShape.circle,
-                          ),
-                          child: CustomPaint(
-                            painter: DetailedCoinGraphicPainter(
-                              collectible: c,
-                              isFront: _isFrontView,
-                            ),
-                          ),
-                        ),
-                      ),
-                    )
-                        .animate(key: ValueKey('coin_view_$_isFrontView'))
-                        .flipH(duration: 400.ms),
+                    child:
+                        Container(
+                              height: 260,
+                              width: 260,
+                              decoration: BoxDecoration(
+                                borderRadius: BorderRadius.circular(24),
+                                border: Border.all(
+                                  color: AppColors.borderLight,
+                                  width: 1.5,
+                                ),
+                                boxShadow: AppTheme.premiumShadow,
+                              ),
+                              clipBehavior: Clip.antiAlias,
+                              child: PhotoStudioViewer(
+                                backgroundType: _selectedStudioBg,
+                                child: _buildCoinVisual(c),
+                              ),
+                            )
+                            .animate(key: ValueKey('coin_view_$_isFrontView'))
+                            .flipH(duration: 400.ms),
                   ),
                   const SizedBox(height: 12),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Icon(Icons.swap_horizontal_circle_outlined, size: 14, color: AppColors.textSecondary),
+                      const Icon(
+                        Icons.swap_horizontal_circle_outlined,
+                        size: 14,
+                        color: AppColors.textSecondary,
+                      ),
                       const SizedBox(width: 4),
                       Text(
-                        _isFrontView ? 'FRONT SIDE (TAP TO SWIPE)' : 'REVERSE SIDE (TAP TO SWIPE)',
-                        style: AppTypography.caption.copyWith(fontWeight: FontWeight.bold),
+                        _isFrontView
+                            ? 'FRONT SIDE (TAP TO SWIPE)'
+                            : 'REVERSE SIDE (TAP TO SWIPE)',
+                        style: AppTypography.caption.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                     ],
                   ),
                   const SizedBox(height: 16),
                   Text(
                     'PHOTO STUDIO BG FILTER',
-                    style: AppTypography.goldLabel.copyWith(fontSize: 9, letterSpacing: 1),
+                    style: AppTypography.goldLabel.copyWith(fontSize: 9),
                   ),
                   const SizedBox(height: 8),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
-                    children: ['light', 'dark', 'velvet', 'wood', 'concrete'].map((bg) {
-                      final isSel = _selectedStudioBg == bg;
-                      return GestureDetector(
-                        onTap: () => setState(() => _selectedStudioBg = bg),
-                        child: Container(
-                          margin: const EdgeInsets.symmetric(horizontal: 4),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: isSel ? AppColors.gold : AppColors.surface,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: isSel ? AppColors.gold : AppColors.borderLight,
+                    children: ['light', 'dark', 'velvet', 'wood', 'concrete']
+                        .map((bg) {
+                          final isSel = _selectedStudioBg == bg;
+                          return GestureDetector(
+                            onTap: () => setState(() => _selectedStudioBg = bg),
+                            child: Container(
+                              margin: const EdgeInsets.symmetric(horizontal: 4),
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 10,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: isSel
+                                    ? AppColors.gold
+                                    : AppColors.surface,
+                                borderRadius: BorderRadius.circular(8),
+                                border: Border.all(
+                                  color: isSel
+                                      ? AppColors.gold
+                                      : AppColors.borderLight,
+                                ),
+                              ),
+                              child: Text(
+                                bg.toUpperCase(),
+                                style: AppTypography.caption.copyWith(
+                                  color: isSel
+                                      ? Colors.white
+                                      : AppColors.textSecondary,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
                             ),
-                          ),
-                          child: Text(
-                            bg.toUpperCase(),
-                            style: AppTypography.caption.copyWith(
-                              color: isSel ? Colors.white : AppColors.textSecondary,
-                              fontSize: 9,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
+                          );
+                        })
+                        .toList(),
                   ),
                 ],
               ),
@@ -240,9 +419,12 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
                     decoration: BoxDecoration(
-                      color: AppColors.gold.withOpacity(0.1),
+                      color: AppColors.gold.withValues(alpha: 0.1),
                       borderRadius: BorderRadius.circular(8),
                     ),
                     child: Text(
@@ -251,7 +433,10 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  Text(c.name, style: AppTypography.sectionHeader.copyWith(fontSize: 22)),
+                  Text(
+                    c.name,
+                    style: AppTypography.sectionHeader.copyWith(fontSize: 22),
+                  ),
                   const SizedBox(height: 8),
                   Text(
                     '${c.country} • Minted in ${c.year < 0 ? '${c.year.abs()} BC' : c.year}',
@@ -292,7 +477,9 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                             height: 6,
                             margin: EdgeInsets.only(right: index == 5 ? 0 : 4),
                             decoration: BoxDecoration(
-                              color: isActive ? AppColors.gold : AppColors.border,
+                              color: isActive
+                                  ? AppColors.gold
+                                  : AppColors.border,
                               borderRadius: BorderRadius.circular(3),
                             ),
                           ),
@@ -311,7 +498,7 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
 
             const SizedBox(height: 24),
 
-            // 4. Authenticity Analysis (Expert observations)
+            // 4. Identification Evidence
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Card(
@@ -323,24 +510,46 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          Row(
-                            children: [
-                              Icon(Icons.verified_outlined, color: AppColors.emerald, size: 20),
-                              const SizedBox(width: 8),
-                              Text('Authenticity', style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.bold)),
-                            ],
-                          ),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                            decoration: BoxDecoration(
-                              color: AppColors.emeraldLight,
-                              borderRadius: BorderRadius.circular(8),
+                          Expanded(
+                            child: Row(
+                              children: [
+                                const Icon(
+                                  Icons.fact_check_outlined,
+                                  color: AppColors.emerald,
+                                  size: 20,
+                                ),
+                                const SizedBox(width: 8),
+                                Flexible(
+                                  child: Text(
+                                    'Why this match',
+                                    style: AppTypography.bodyMedium.copyWith(
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                              ],
                             ),
-                            child: Text(
-                              '${(c.authenticityConfidence * 100).toStringAsFixed(0)}% Confidence',
-                              style: AppTypography.caption.copyWith(
-                                color: AppColors.emerald,
-                                fontWeight: FontWeight.bold,
+                          ),
+                          const SizedBox(width: 12),
+                          Flexible(
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: AppColors.emeraldLight,
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                              child: Text(
+                                '${(c.authenticityConfidence * 100).toStringAsFixed(0)}% match',
+                                style: AppTypography.caption.copyWith(
+                                  color: AppColors.emerald,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
                               ),
                             ),
                           ),
@@ -348,7 +557,7 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                       ),
                       const SizedBox(height: 16),
                       Text(
-                        'AI Engine observations & structural alignment checks:',
+                        'Evidence from visible design, inscriptions, date, mint and physical specifications. This is not an authentication certificate.',
                         style: AppTypography.caption.copyWith(fontSize: 11),
                       ),
                       const SizedBox(height: 12),
@@ -360,19 +569,26 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                             children: [
                               const Padding(
                                 padding: EdgeInsets.only(top: 4.0),
-                                child: Icon(Icons.check_circle_outline, color: AppColors.emerald, size: 14),
+                                child: Icon(
+                                  Icons.check_circle_outline,
+                                  color: AppColors.emerald,
+                                  size: 14,
+                                ),
                               ),
                               const SizedBox(width: 8),
                               Expanded(
                                 child: Text(
                                   reason,
-                                  style: AppTypography.bodyMedium.copyWith(fontSize: 13, color: AppColors.textPrimary),
+                                  style: AppTypography.bodyMedium.copyWith(
+                                    fontSize: 13,
+                                    color: AppColors.textPrimary,
+                                  ),
                                 ),
                               ),
                             ],
                           ),
                         );
-                      }).toList(),
+                      }),
                     ],
                   ),
                 ),
@@ -381,7 +597,7 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
 
             const SizedBox(height: 24),
 
-            // 5. Sheldon Coin Grading Scale Card
+            // 5. Condition Estimate
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Card(
@@ -392,9 +608,21 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                     children: [
                       Row(
                         children: [
-                          Icon(Icons.workspace_premium_outlined, color: AppColors.goldDark, size: 20),
+                          const Icon(
+                            Icons.workspace_premium_outlined,
+                            color: AppColors.goldDark,
+                            size: 20,
+                          ),
                           const SizedBox(width: 8),
-                          Text('Sheldon Grade Estimation', style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.bold)),
+                          Expanded(
+                            child: Text(
+                              'AI condition estimate',
+                              style: AppTypography.bodyMedium.copyWith(
+                                fontWeight: FontWeight.bold,
+                              ),
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
                         ],
                       ),
                       const SizedBox(height: 16),
@@ -405,13 +633,18 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                             width: 60,
                             decoration: BoxDecoration(
                               shape: BoxShape.circle,
-                              color: AppColors.gold.withOpacity(0.1),
-                              border: Border.all(color: AppColors.gold, width: 1.5),
+                              color: AppColors.gold.withValues(alpha: 0.1),
+                              border: Border.all(
+                                color: AppColors.gold,
+                                width: 1.5,
+                              ),
                             ),
                             alignment: Alignment.center,
                             child: Text(
                               c.estimatedGrade,
-                              style: AppTypography.goldLabel.copyWith(fontSize: 18),
+                              style: AppTypography.goldLabel.copyWith(
+                                fontSize: 18,
+                              ),
                             ),
                           ),
                           const SizedBox(width: 16),
@@ -420,12 +653,16 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  c.estimatedGrade.startsWith('MS') ? 'Mint State Strike' : 'Circulated Condition',
-                                  style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.bold),
+                                  c.estimatedGrade.startsWith('MS')
+                                      ? 'Mint State Strike'
+                                      : 'Circulated Condition',
+                                  style: AppTypography.bodyMedium.copyWith(
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
                                 const SizedBox(height: 4),
                                 Text(
-                                  'Estimated surface quality and strike grade matching certification requirements.',
+                                  'A photo-based estimate only. Expensive coins should be reviewed by a professional grading service.',
                                   style: AppTypography.caption,
                                 ),
                               ],
@@ -451,22 +688,44 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text('Price Analysis', style: AppTypography.sectionHeader),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: AppColors.emeraldLight,
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                  Expanded(
                     child: Text(
-                      'Rating: ${c.investmentRating}',
-                      style: AppTypography.caption.copyWith(
-                        color: AppColors.emerald,
-                        fontWeight: FontWeight.bold,
-                      ),
+                      'Value Guidance',
+                      style: AppTypography.sectionHeader,
+                      overflow: TextOverflow.ellipsis,
                     ),
                   ),
+                  if (c.investmentRating.isNotEmpty) ...[
+                    const SizedBox(width: 12),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: AppColors.emeraldLight,
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'Rating: ${c.investmentRating}',
+                        style: AppTypography.caption.copyWith(
+                          color: AppColors.emerald,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
                 ],
+              ),
+            ),
+            const SizedBox(height: 16),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 24),
+              child: Text(
+                'Collector value depends on grade, mint mark, rarity, errors, provenance, metal content and recent comparable sales. Treat this as a range, not a guaranteed market price.',
+                style: AppTypography.caption.copyWith(height: 1.45),
               ),
             ),
             const SizedBox(height: 16),
@@ -476,11 +735,18 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: Row(
                 children: [
-                  _PriceMetric(label: 'Retail', value: '\$${c.retailPrice >= 1000 ? '${(c.retailPrice / 1000).toStringAsFixed(1)}k' : c.retailPrice}'),
+                  // One saved estimate is shown once, honestly labelled. It is
+                  // not split into separate retail / auction / dealer prices,
+                  // because no such market data exists for this coin.
+                  _PriceMetric(
+                    label: 'Saved estimate',
+                    value: _formatSavedAmount(c.retailPrice),
+                  ),
                   const SizedBox(width: 12),
-                  _PriceMetric(label: 'Auction', value: '\$${c.auctionPrice >= 1000 ? '${(c.auctionPrice / 1000).toStringAsFixed(1)}k' : c.auctionPrice}'),
-                  const SizedBox(width: 12),
-                  _PriceMetric(label: 'Dealer', value: '\$${c.dealerPrice >= 1000 ? '${(c.dealerPrice / 1000).toStringAsFixed(1)}k' : c.dealerPrice}'),
+                  _PriceMetric(
+                    label: 'Melt value',
+                    value: _formatSavedAmount(widget.vaultItem?.meltValue),
+                  ),
                 ],
               ),
             ),
@@ -500,53 +766,93 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                 child: Column(
                   children: [
                     // Time selector
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: ['1 Month', '6 Months', '1 Year', '5 Years'].map((duration) {
-                        final isSel = _selectedChartDuration == duration;
-                        return GestureDetector(
-                          onTap: () {
-                            setState(() {
-                              _selectedChartDuration = duration;
-                            });
-                          },
-                          child: Text(
-                            duration,
-                            style: AppTypography.caption.copyWith(
-                              color: isSel ? AppColors.goldDark : AppColors.textSecondary,
-                              fontWeight: isSel ? FontWeight.bold : FontWeight.normal,
-                            ),
-                          ),
-                        );
-                      }).toList(),
+                    Wrap(
+                      spacing: 8,
+                      runSpacing: 8,
+                      children: ['1 Month', '6 Months', '1 Year', '5 Years']
+                          .map((duration) {
+                            final isSel = _selectedChartDuration == duration;
+                            return GestureDetector(
+                              onTap: () {
+                                setState(() {
+                                  _selectedChartDuration = duration;
+                                });
+                              },
+                              child: Container(
+                                padding: const EdgeInsets.symmetric(
+                                  horizontal: 8,
+                                  vertical: 4,
+                                ),
+                                decoration: BoxDecoration(
+                                  color: isSel
+                                      ? AppColors.gold.withValues(alpha: 0.12)
+                                      : AppColors.surfaceWarm,
+                                  borderRadius: BorderRadius.circular(8),
+                                ),
+                                child: Text(
+                                  duration,
+                                  style: AppTypography.caption.copyWith(
+                                    color: isSel
+                                        ? AppColors.goldDark
+                                        : AppColors.textSecondary,
+                                    fontWeight: isSel
+                                        ? FontWeight.bold
+                                        : FontWeight.normal,
+                                  ),
+                                ),
+                              ),
+                            );
+                          })
+                          .toList(),
                     ),
                     const SizedBox(height: 28),
 
                     // Chart viewport
                     Expanded(
-                      child: LineChart(
-                        LineChartData(
-                          gridData: const FlGridData(show: false),
-                          titlesData: const FlTitlesData(show: false),
-                          borderData: FlBorderData(show: false),
-                          lineBarsData: [
-                            LineChartBarData(
-                              spots: List.generate(prices.length, (idx) {
-                                return FlSpot(idx.toDouble(), prices[idx]);
-                              }),
-                              isCurved: true,
-                              color: AppColors.gold,
-                              barWidth: 4,
-                              isStrokeCapRound: true,
-                              dotData: const FlDotData(show: false),
-                              belowBarData: BarAreaData(
-                                show: true,
-                                color: AppColors.gold.withOpacity(0.08),
+                      child: prices.isEmpty
+                          ? Center(
+                              child: Column(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  const Icon(
+                                    Icons.show_chart_rounded,
+                                    size: 32,
+                                    color: AppColors.textMuted,
+                                  ),
+                                  const SizedBox(height: 8),
+                                  Text(
+                                    'Historical auction price trend unavailable for this variety',
+                                    textAlign: TextAlign.center,
+                                    style: AppTypography.caption.copyWith(
+                                      color: AppColors.textSecondary,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : LineChart(
+                              LineChartData(
+                                gridData: const FlGridData(show: false),
+                                titlesData: const FlTitlesData(show: false),
+                                borderData: FlBorderData(show: false),
+                                lineBarsData: [
+                                  LineChartBarData(
+                                    spots: List.generate(prices.length, (idx) {
+                                      return FlSpot(idx.toDouble(), prices[idx]);
+                                    }),
+                                    isCurved: true,
+                                    color: AppColors.gold,
+                                    barWidth: 4,
+                                    isStrokeCapRound: true,
+                                    dotData: const FlDotData(show: false),
+                                    belowBarData: BarAreaData(
+                                      show: true,
+                                      color: AppColors.gold.withValues(alpha: 0.08),
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                          ],
-                        ),
-                      ),
                     ),
                   ],
                 ),
@@ -558,7 +864,10 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
             // 7. Full Specifications Table
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text('Technical Specifications', style: AppTypography.sectionHeader),
+              child: Text(
+                'Technical Specifications',
+                style: AppTypography.sectionHeader,
+              ),
             ),
             const SizedBox(height: 16),
             Padding(
@@ -570,7 +879,10 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                 ),
                 children: [
                   _buildSpecRow('Country / Origin', c.country),
-                  _buildSpecRow('Year of Issue', '${c.year < 0 ? '${c.year.abs()} BC' : c.year}'),
+                  _buildSpecRow(
+                    'Year of Issue',
+                    '${c.year < 0 ? '${c.year.abs()} BC' : c.year}',
+                  ),
                   _buildSpecRow('Nominal Value', c.denomination),
                   _buildSpecRow('Metal / Purity', c.composition),
                   _buildSpecRow('Actual Weight', '${c.weightG} g'),
@@ -588,7 +900,10 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
             // 8. Historical Timeline & Essay Section
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text('Historical Background', style: AppTypography.sectionHeader),
+              child: Text(
+                'Historical Background',
+                style: AppTypography.sectionHeader,
+              ),
             ),
             const SizedBox(height: 16),
             Padding(
@@ -609,19 +924,31 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
-                        Text('Vault Storage Management', style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.bold)),
+                        Expanded(
+                          child: Text(
+                            'Vault Storage Management',
+                            style: AppTypography.bodyMedium.copyWith(
+                              fontWeight: FontWeight.bold,
+                            ),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
                         Switch.adaptive(
                           value: _isSavedInVault,
-                          activeColor: AppColors.gold,
+                          activeTrackColor: AppColors.gold,
                           onChanged: (val) {
                             setState(() {
                               _isSavedInVault = val;
                             });
                             ScaffoldMessenger.of(context).showSnackBar(
                               SnackBar(
-                                backgroundColor: val ? AppColors.emerald : AppColors.crimson,
+                                backgroundColor: val
+                                    ? AppColors.emerald
+                                    : AppColors.crimson,
                                 content: Text(
-                                  val ? 'Item successfully saved to Collection Vault.' : 'Removed from Collection Vault.',
+                                  val
+                                      ? 'Item successfully saved to Collection Vault.'
+                                      : 'Removed from Collection Vault.',
                                   style: AppTypography.buttonText,
                                 ),
                               ),
@@ -645,11 +972,17 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                             borderRadius: BorderRadius.circular(10),
                             borderSide: BorderSide.none,
                           ),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 16),
-                      Text('Purchase Origin / Seller', style: AppTypography.caption),
+                      Text(
+                        'Purchase Origin / Seller',
+                        style: AppTypography.caption,
+                      ),
                       const SizedBox(height: 8),
                       TextFormField(
                         controller: _purchaseLocationController,
@@ -661,14 +994,17 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                             borderRadius: BorderRadius.circular(10),
                             borderSide: BorderSide.none,
                           ),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 12,
+                          ),
                         ),
                       ),
                       const SizedBox(height: 16),
                       Text('Storage Vault Box', style: AppTypography.caption),
                       const SizedBox(height: 8),
                       DropdownButtonFormField<String>(
-                        value: _storageLocation,
+                        initialValue: _storageLocation,
                         decoration: InputDecoration(
                           filled: true,
                           fillColor: AppColors.surface,
@@ -676,14 +1012,26 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                             borderRadius: BorderRadius.circular(10),
                             borderSide: BorderSide.none,
                           ),
-                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+                          contentPadding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 6,
+                          ),
                         ),
-                        items: ['Home Vault', 'Safe Deposit Box A', 'Safe Deposit Box B', 'Display Cabinet'].map((loc) {
-                          return DropdownMenuItem(
-                            value: loc,
-                            child: Text(loc, style: AppTypography.bodyMedium),
-                          );
-                        }).toList(),
+                        items:
+                            [
+                              'Home Vault',
+                              'Safe Deposit Box A',
+                              'Safe Deposit Box B',
+                              'Display Cabinet',
+                            ].map((loc) {
+                              return DropdownMenuItem(
+                                value: loc,
+                                child: Text(
+                                  loc,
+                                  style: AppTypography.bodyMedium,
+                                ),
+                              );
+                            }).toList(),
                         onChanged: (val) {
                           if (val != null) {
                             setState(() {
@@ -707,6 +1055,15 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                             borderSide: BorderSide.none,
                           ),
                           contentPadding: const EdgeInsets.all(12),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                      SizedBox(
+                        width: double.infinity,
+                        child: GoldButton(
+                          text: 'Save Vault Changes',
+                          size: GoldButtonSize.compact,
+                          onPressed: _saveVaultChanges,
                         ),
                       ),
                     ],
@@ -740,12 +1097,18 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
 
   int _getRarityBarValue(RarityLevel level) {
     switch (level) {
-      case RarityLevel.common: return 0;
-      case RarityLevel.uncommon: return 1;
-      case RarityLevel.rare: return 2;
-      case RarityLevel.veryRare: return 3;
-      case RarityLevel.extremelyRare: return 4;
-      case RarityLevel.museumGrade: return 5;
+      case RarityLevel.common:
+        return 0;
+      case RarityLevel.uncommon:
+        return 1;
+      case RarityLevel.rare:
+        return 2;
+      case RarityLevel.veryRare:
+        return 3;
+      case RarityLevel.extremelyRare:
+        return 4;
+      case RarityLevel.museumGrade:
+        return 5;
     }
   }
 
@@ -760,7 +1123,9 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
           padding: const EdgeInsets.symmetric(vertical: 14.0),
           child: Text(
             value,
-            style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.bold),
+            style: AppTypography.bodyMedium.copyWith(
+              fontWeight: FontWeight.bold,
+            ),
             textAlign: TextAlign.right,
           ),
         ),
@@ -772,21 +1137,66 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
     List<Map<String, String>> timelineData;
     if (c.id == 'coin_saint_gaudens') {
       timelineData = [
-        {'year': '1905', 'title': 'Roosevelt Initiative', 'desc': 'President Theodore Roosevelt commissions sculptor Augustus Saint-Gaudens to redesign US coinage.'},
-        {'year': '1907', 'title': 'First High Relief Strikes', 'desc': 'First 11,250 high relief coins struck. The rim type was modified to flat to accommodate vault stackings.'},
-        {'year': '1933', 'title': 'Executive Order Recall', 'desc': 'Executive Order 6102 outlaws gold ownership, ordering the melting of virtually all 1933 Double Eagles.'},
+        {
+          'year': '1905',
+          'title': 'Roosevelt Initiative',
+          'desc':
+              'President Theodore Roosevelt commissions sculptor Augustus Saint-Gaudens to redesign US coinage.',
+        },
+        {
+          'year': '1907',
+          'title': 'First High Relief Strikes',
+          'desc':
+              'First 11,250 high relief coins struck. The rim type was modified to flat to accommodate vault stackings.',
+        },
+        {
+          'year': '1933',
+          'title': 'Executive Order Recall',
+          'desc':
+              'Executive Order 6102 outlaws gold ownership, ordering the melting of virtually all 1933 Double Eagles.',
+        },
       ];
     } else if (c.id == 'coin_athenian_owl') {
       timelineData = [
-        {'year': '454 BC', 'title': 'Treasury Relocation', 'desc': 'Athens relocates the Delian League treasury to the Acropolis, funding massive Owl coin production.'},
-        {'year': '440 BC', 'title': 'Classical Mint Peak', 'desc': 'Owl designs reach their aesthetic pinnacle under master craftsmen during the height of the Golden Age.'},
-        {'year': '404 BC', 'title': 'Peloponnesian Defeat', 'desc': 'Athens surrenders to Sparta, leading to temporary closures of the municipal minting treasuries.'},
+        {
+          'year': '454 BC',
+          'title': 'Treasury Relocation',
+          'desc':
+              'Athens relocates the Delian League treasury to the Acropolis, funding massive Owl coin production.',
+        },
+        {
+          'year': '440 BC',
+          'title': 'Classical Mint Peak',
+          'desc':
+              'Owl designs reach their aesthetic pinnacle under master craftsmen during the height of the Golden Age.',
+        },
+        {
+          'year': '404 BC',
+          'title': 'Peloponnesian Defeat',
+          'desc':
+              'Athens surrenders to Sparta, leading to temporary closures of the municipal minting treasuries.',
+        },
       ];
     } else {
       timelineData = [
-        {'year': '${c.year - 2}', 'title': 'Engraving Masterwork', 'desc': 'Initial die models drafted and approved by the central mint committee.'},
-        {'year': '${c.year}', 'title': 'Inaugural Strike Release', 'desc': 'First series batch released into standard commercial circulation channels.'},
-        {'year': '${c.year + 10}', 'title': 'Design Retirement', 'desc': 'Dies retired or updated to newer commemorative variation profiles.'},
+        {
+          'year': '${c.year - 2}',
+          'title': 'Engraving Masterwork',
+          'desc':
+              'Initial die models drafted and approved by the central mint committee.',
+        },
+        {
+          'year': '${c.year}',
+          'title': 'Inaugural Strike Release',
+          'desc':
+              'First series batch released into standard commercial circulation channels.',
+        },
+        {
+          'year': '${c.year + 10}',
+          'title': 'Design Retirement',
+          'desc':
+              'Dies retired or updated to newer commemorative variation profiles.',
+        },
       ];
     }
 
@@ -802,11 +1212,15 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
         children: [
           Row(
             children: [
-              Icon(Icons.museum_outlined, color: AppColors.goldDark, size: 20),
+              const Icon(
+                Icons.museum_outlined,
+                color: AppColors.goldDark,
+                size: 20,
+              ),
               const SizedBox(width: 8),
               Text(
                 'MUSEUM TIMELINE MODE',
-                style: AppTypography.goldLabel.copyWith(fontSize: 10, letterSpacing: 1),
+                style: AppTypography.goldLabel.copyWith(fontSize: 10),
               ),
             ],
           ),
@@ -820,9 +1234,12 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                 Column(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
                       decoration: BoxDecoration(
-                        color: AppColors.gold.withOpacity(0.12),
+                        color: AppColors.gold.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(color: AppColors.gold, width: 1),
                       ),
@@ -832,15 +1249,11 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                       ),
                     ),
                     if (idx < timelineData.length - 1)
-                      Container(
-                        height: 50,
-                        width: 2,
-                        color: AppColors.border,
-                      ),
+                      Container(height: 50, width: 2, color: AppColors.border),
                   ],
                 ),
                 const SizedBox(width: 16),
-                
+
                 // Content column
                 Expanded(
                   child: Column(
@@ -848,7 +1261,9 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
                     children: [
                       Text(
                         t['title']!,
-                        style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.bold),
+                        style: AppTypography.bodyMedium.copyWith(
+                          fontWeight: FontWeight.bold,
+                        ),
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -873,15 +1288,20 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
   }
 }
 
+/// Formats a stored amount, or an em dash when no real value exists.
+String _formatSavedAmount(double? amount) {
+  if (amount == null || amount.isNaN || amount.isInfinite || amount <= 0) {
+    return '—';
+  }
+  if (amount >= 1000) return '\$${(amount / 1000).toStringAsFixed(1)}k';
+  return '\$${amount.toStringAsFixed(2)}';
+}
+
 class _PriceMetric extends StatelessWidget {
   final String label;
   final String value;
 
-  const _PriceMetric({
-    Key? key,
-    required this.label,
-    required this.value,
-  }) : super(key: key);
+  const _PriceMetric({required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
@@ -899,7 +1319,10 @@ class _PriceMetric extends StatelessWidget {
             const SizedBox(height: 4),
             Text(
               value,
-              style: AppTypography.sectionHeader.copyWith(fontSize: 16, color: AppColors.goldDark),
+              style: AppTypography.sectionHeader.copyWith(
+                fontSize: 16,
+                color: AppColors.goldDark,
+              ),
             ),
           ],
         ),
@@ -912,7 +1335,10 @@ class DetailedCoinGraphicPainter extends CustomPainter {
   final CollectibleModel collectible;
   final bool isFront;
 
-  DetailedCoinGraphicPainter({required this.collectible, required this.isFront});
+  DetailedCoinGraphicPainter({
+    required this.collectible,
+    required this.isFront,
+  });
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -921,14 +1347,14 @@ class DetailedCoinGraphicPainter extends CustomPainter {
 
     // Draw gold or silver composition gradient based on coin model
     final isGold = collectible.composition.toLowerCase().contains('gold');
-    
+
     final gradient = RadialGradient(
       colors: isGold
           ? [AppColors.goldLight, AppColors.gold, AppColors.goldDark]
           : [Colors.white, AppColors.border, AppColors.textSecondary],
       stops: const [0.1, 0.7, 1.0],
     ).createShader(Rect.fromCircle(center: center, radius: size.width / 2));
-    
+
     paint.shader = gradient;
     canvas.drawCircle(center, size.width / 2, paint);
 
@@ -936,26 +1362,47 @@ class DetailedCoinGraphicPainter extends CustomPainter {
     paint.shader = null;
     paint.style = PaintingStyle.stroke;
     paint.strokeWidth = 2;
-    paint.color = Colors.white.withOpacity(0.3);
+    paint.color = Colors.white.withValues(alpha: 0.3);
     canvas.drawCircle(center, size.width / 2 - 12, paint);
 
     // Core symbol representations
     paint.style = PaintingStyle.fill;
-    paint.color = (isGold ? AppColors.goldDark : AppColors.textPrimary).withOpacity(0.3);
+    paint.color = (isGold ? AppColors.goldDark : AppColors.textPrimary)
+        .withValues(alpha: 0.3);
 
     if (isFront) {
       // Draw a silhouette portrait/liberty head representation
       final path = Path()
         ..moveTo(center.dx - 10, center.dy + 35)
         ..lineTo(center.dx + 10, center.dy + 35)
-        ..quadraticBezierTo(center.dx + 5, center.dy + 15, center.dx + 10, center.dy)
-        ..quadraticBezierTo(center.dx + 25, center.dy - 10, center.dx + 10, center.dy - 30)
-        ..quadraticBezierTo(center.dx - 20, center.dy - 25, center.dx - 15, center.dy - 5)
-        ..quadraticBezierTo(center.dx - 25, center.dy + 15, center.dx - 10, center.dy + 35);
+        ..quadraticBezierTo(
+          center.dx + 5,
+          center.dy + 15,
+          center.dx + 10,
+          center.dy,
+        )
+        ..quadraticBezierTo(
+          center.dx + 25,
+          center.dy - 10,
+          center.dx + 10,
+          center.dy - 30,
+        )
+        ..quadraticBezierTo(
+          center.dx - 20,
+          center.dy - 25,
+          center.dx - 15,
+          center.dy - 5,
+        )
+        ..quadraticBezierTo(
+          center.dx - 25,
+          center.dy + 15,
+          center.dx - 10,
+          center.dy + 35,
+        );
       canvas.drawPath(path, paint);
-      
+
       // Star borders
-      paint.color = Colors.white.withOpacity(0.4);
+      paint.color = Colors.white.withValues(alpha: 0.4);
       for (int i = 0; i < 12; i++) {
         final angle = i * pi / 6;
         final starLoc = Offset(
@@ -968,22 +1415,51 @@ class DetailedCoinGraphicPainter extends CustomPainter {
       // Draw reverse design representation (Eagle or Owl depending on details)
       if (collectible.id == 'coin_athenian_owl') {
         // Draw Athenian owl reverse silhouette
-        paint.color = AppColors.textPrimary.withOpacity(0.45);
+        paint.color = AppColors.textPrimary.withValues(alpha: 0.45);
         canvas.drawCircle(Offset(center.dx - 10, center.dy - 10), 8, paint);
         canvas.drawCircle(Offset(center.dx + 10, center.dy - 10), 8, paint);
         canvas.drawOval(
-          Rect.fromCenter(center: Offset(center.dx, center.dy + 10), width: 25, height: 30),
+          Rect.fromCenter(
+            center: Offset(center.dx, center.dy + 10),
+            width: 25,
+            height: 30,
+          ),
           paint,
         );
       } else {
         // Draw standard flying eagle reverse silhouette
         final eaglePath = Path()
           ..moveTo(center.dx - 45, center.dy - 10)
-          ..quadraticBezierTo(center.dx - 10, center.dy - 15, center.dx, center.dy - 5)
-          ..quadraticBezierTo(center.dx + 10, center.dy - 15, center.dx + 45, center.dy - 10)
-          ..quadraticBezierTo(center.dx + 10, center.dy + 5, center.dx + 5, center.dy + 25)
-          ..quadraticBezierTo(center.dx, center.dy + 15, center.dx - 5, center.dy + 25)
-          ..quadraticBezierTo(center.dx - 10, center.dy + 5, center.dx - 45, center.dy - 10);
+          ..quadraticBezierTo(
+            center.dx - 10,
+            center.dy - 15,
+            center.dx,
+            center.dy - 5,
+          )
+          ..quadraticBezierTo(
+            center.dx + 10,
+            center.dy - 15,
+            center.dx + 45,
+            center.dy - 10,
+          )
+          ..quadraticBezierTo(
+            center.dx + 10,
+            center.dy + 5,
+            center.dx + 5,
+            center.dy + 25,
+          )
+          ..quadraticBezierTo(
+            center.dx,
+            center.dy + 15,
+            center.dx - 5,
+            center.dy + 25,
+          )
+          ..quadraticBezierTo(
+            center.dx - 10,
+            center.dy + 5,
+            center.dx - 45,
+            center.dy - 10,
+          );
         canvas.drawPath(eaglePath, paint);
       }
     }

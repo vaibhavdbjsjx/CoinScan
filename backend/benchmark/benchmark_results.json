@@ -1,0 +1,345 @@
+{
+  "full": {
+    "mode": "full",
+    "total_samples": 20,
+    "top_1_accuracy": 100.0,
+    "top_3_accuracy": 100.0,
+    "top_5_accuracy": 100.0,
+    "country_accuracy": 100.0,
+    "denomination_accuracy": 100.0,
+    "year_accuracy": 100.0,
+    "mint_accuracy": 100.0,
+    "catalogue_id_accuracy": 100.0,
+    "composition_accuracy": 100.0,
+    "refusal_precision": 100.0,
+    "false_positive_rate": 0.0,
+    "false_confidence_rate": 0.0,
+    "reverse_consistency_rate": 100.0,
+    "contradiction_detection_rate": 100.0,
+    "hallucination_rate": 0.0,
+    "calibration_bins": {
+      "90-100": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "80-89": {
+        "count": 12,
+        "correct": 12,
+        "accuracy": 100.0
+      },
+      "70-79": {
+        "count": 2,
+        "correct": 2,
+        "accuracy": 100.0
+      },
+      "60-69": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "below_60": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      }
+    },
+    "latency_p50_ms": 420.1,
+    "latency_p95_ms": 420.4,
+    "latency_p99_ms": 420.4
+  },
+  "front_only": {
+    "mode": "front_only",
+    "total_samples": 20,
+    "top_1_accuracy": 71.4,
+    "top_3_accuracy": 100.0,
+    "top_5_accuracy": 100.0,
+    "country_accuracy": 100.0,
+    "denomination_accuracy": 100.0,
+    "year_accuracy": 100.0,
+    "mint_accuracy": 71.4,
+    "catalogue_id_accuracy": 100.0,
+    "composition_accuracy": 100.0,
+    "refusal_precision": 100.0,
+    "false_positive_rate": 0.0,
+    "false_confidence_rate": 0.0,
+    "reverse_consistency_rate": 0.0,
+    "contradiction_detection_rate": 100.0,
+    "hallucination_rate": 0.0,
+    "calibration_bins": {
+      "90-100": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "80-89": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "70-79": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "60-69": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "below_60": {
+        "count": 14,
+        "correct": 10,
+        "accuracy": 71.4
+      }
+    },
+    "latency_p50_ms": 420.0,
+    "latency_p95_ms": 420.0,
+    "latency_p99_ms": 420.0
+  },
+  "front_reverse": {
+    "mode": "front_reverse",
+    "total_samples": 20,
+    "top_1_accuracy": 100.0,
+    "top_3_accuracy": 100.0,
+    "top_5_accuracy": 100.0,
+    "country_accuracy": 100.0,
+    "denomination_accuracy": 100.0,
+    "year_accuracy": 100.0,
+    "mint_accuracy": 100.0,
+    "catalogue_id_accuracy": 100.0,
+    "composition_accuracy": 100.0,
+    "refusal_precision": 100.0,
+    "false_positive_rate": 0.0,
+    "false_confidence_rate": 0.0,
+    "reverse_consistency_rate": 100.0,
+    "contradiction_detection_rate": 100.0,
+    "hallucination_rate": 0.0,
+    "calibration_bins": {
+      "90-100": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "80-89": {
+        "count": 12,
+        "correct": 12,
+        "accuracy": 100.0
+      },
+      "70-79": {
+        "count": 2,
+        "correct": 2,
+        "accuracy": 100.0
+      },
+      "60-69": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "below_60": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      }
+    },
+    "latency_p50_ms": 420.0,
+    "latency_p95_ms": 420.1,
+    "latency_p99_ms": 420.1
+  },
+  "front_reverse_edge": {
+    "mode": "front_reverse_edge",
+    "total_samples": 20,
+    "top_1_accuracy": 100.0,
+    "top_3_accuracy": 100.0,
+    "top_5_accuracy": 100.0,
+    "country_accuracy": 100.0,
+    "denomination_accuracy": 100.0,
+    "year_accuracy": 100.0,
+    "mint_accuracy": 100.0,
+    "catalogue_id_accuracy": 100.0,
+    "composition_accuracy": 100.0,
+    "refusal_precision": 100.0,
+    "false_positive_rate": 0.0,
+    "false_confidence_rate": 0.0,
+    "reverse_consistency_rate": 100.0,
+    "contradiction_detection_rate": 100.0,
+    "hallucination_rate": 0.0,
+    "calibration_bins": {
+      "90-100": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "80-89": {
+        "count": 12,
+        "correct": 12,
+        "accuracy": 100.0
+      },
+      "70-79": {
+        "count": 2,
+        "correct": 2,
+        "accuracy": 100.0
+      },
+      "60-69": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "below_60": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      }
+    },
+    "latency_p50_ms": 420.0,
+    "latency_p95_ms": 420.1,
+    "latency_p99_ms": 420.1
+  },
+  "vision_only": {
+    "mode": "vision_only",
+    "total_samples": 20,
+    "top_1_accuracy": 100.0,
+    "top_3_accuracy": 100.0,
+    "top_5_accuracy": 100.0,
+    "country_accuracy": 100.0,
+    "denomination_accuracy": 100.0,
+    "year_accuracy": 92.9,
+    "mint_accuracy": 100.0,
+    "catalogue_id_accuracy": 0.0,
+    "composition_accuracy": 0.0,
+    "refusal_precision": 100.0,
+    "false_positive_rate": 0.0,
+    "false_confidence_rate": 0.0,
+    "reverse_consistency_rate": 100.0,
+    "contradiction_detection_rate": 100.0,
+    "hallucination_rate": 0.0,
+    "calibration_bins": {
+      "90-100": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "80-89": {
+        "count": 12,
+        "correct": 12,
+        "accuracy": 100.0
+      },
+      "70-79": {
+        "count": 1,
+        "correct": 1,
+        "accuracy": 100.0
+      },
+      "60-69": {
+        "count": 1,
+        "correct": 1,
+        "accuracy": 100.0
+      },
+      "below_60": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      }
+    },
+    "latency_p50_ms": 320.0,
+    "latency_p95_ms": 380.0,
+    "latency_p99_ms": 380.0
+  },
+  "vision_ocr": {
+    "mode": "vision_ocr",
+    "total_samples": 20,
+    "top_1_accuracy": 100.0,
+    "top_3_accuracy": 100.0,
+    "top_5_accuracy": 100.0,
+    "country_accuracy": 100.0,
+    "denomination_accuracy": 100.0,
+    "year_accuracy": 100.0,
+    "mint_accuracy": 100.0,
+    "catalogue_id_accuracy": 0.0,
+    "composition_accuracy": 0.0,
+    "refusal_precision": 100.0,
+    "false_positive_rate": 0.0,
+    "false_confidence_rate": 0.0,
+    "reverse_consistency_rate": 100.0,
+    "contradiction_detection_rate": 100.0,
+    "hallucination_rate": 0.0,
+    "calibration_bins": {
+      "90-100": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "80-89": {
+        "count": 12,
+        "correct": 12,
+        "accuracy": 100.0
+      },
+      "70-79": {
+        "count": 2,
+        "correct": 2,
+        "accuracy": 100.0
+      },
+      "60-69": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "below_60": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      }
+    },
+    "latency_p50_ms": 320.0,
+    "latency_p95_ms": 380.0,
+    "latency_p99_ms": 380.0
+  },
+  "vision_numista": {
+    "mode": "vision_numista",
+    "total_samples": 20,
+    "top_1_accuracy": 92.9,
+    "top_3_accuracy": 100.0,
+    "top_5_accuracy": 100.0,
+    "country_accuracy": 100.0,
+    "denomination_accuracy": 100.0,
+    "year_accuracy": 92.9,
+    "mint_accuracy": 100.0,
+    "catalogue_id_accuracy": 100.0,
+    "composition_accuracy": 100.0,
+    "refusal_precision": 100.0,
+    "false_positive_rate": 0.0,
+    "false_confidence_rate": 0.0,
+    "reverse_consistency_rate": 100.0,
+    "contradiction_detection_rate": 100.0,
+    "hallucination_rate": 0.0,
+    "calibration_bins": {
+      "90-100": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "80-89": {
+        "count": 12,
+        "correct": 12,
+        "accuracy": 100.0
+      },
+      "70-79": {
+        "count": 1,
+        "correct": 1,
+        "accuracy": 100.0
+      },
+      "60-69": {
+        "count": 1,
+        "correct": 0,
+        "accuracy": 0.0
+      },
+      "below_60": {
+        "count": 0,
+        "correct": 0,
+        "accuracy": 0.0
+      }
+    },
+    "latency_p50_ms": 420.0,
+    "latency_p95_ms": 420.0,
+    "latency_p99_ms": 420.0
+  }
+}

@@ -1,0 +1,20 @@
+# =============================================================================
+# CoinScan Android Production Release Signing Configuration Template
+# =============================================================================
+# Copy this file to: android/key.properties
+# NEVER commit android/key.properties or your .jks/.keystore files to Git!
+# Both are explicitly excluded in android/.gitignore and root .gitignore.
+#
+# To generate a production upload keystore for Google Play App Signing:
+# keytool -genkey -v -keystore android/app/upload-keystore.jks \
+#         -alias coinscan-upload \
+#         -keyalg RSA -keysize 2048 -validity 10000 \
+#         -storetype JKS
+#
+# After generating the keystore, populate the values below in android/key.properties:
+# =============================================================================
+
+storePassword=<PRODUCTION_KEYSTORE_PASSWORD>
+keyPassword=<PRODUCTION_KEY_PASSWORD>
+keyAlias=coinscan-upload
+storeFile=app/upload-keystore.jks
