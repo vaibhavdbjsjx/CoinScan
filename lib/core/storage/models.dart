@@ -1,6 +1,8 @@
 enum CollectibleType { coin, banknote }
 
 enum RarityLevel {
+  /// No rarity data source exists for this coin; never inferred from metal or age.
+  notAssessed,
   common,
   uncommon,
   rare,
@@ -10,6 +12,8 @@ enum RarityLevel {
 
   String get displayName {
     switch (this) {
+      case RarityLevel.notAssessed:
+        return 'Not assessed';
       case RarityLevel.common:
         return 'Common';
       case RarityLevel.uncommon:
@@ -44,8 +48,13 @@ class CollectibleModel {
   final String designer;
   final String historicalPeriod;
   final RarityLevel rarity;
-  final double authenticityConfidence;
-  final List<String> authenticityReasons;
+  /// Identification confidence (0..1) recorded at scan time, or null when none
+  /// was recorded. This is NOT an authenticity score: photo recognition cannot
+  /// authenticate a coin.
+  final double? identificationConfidence;
+
+  /// Evidence recorded for the identification (empty when none was saved).
+  final List<String> evidenceSummary;
   final String estimatedGrade;
   final String gradeExplanation;
   final String frontImageUrl;
@@ -91,8 +100,8 @@ class CollectibleModel {
     required this.designer,
     required this.historicalPeriod,
     required this.rarity,
-    required this.authenticityConfidence,
-    required this.authenticityReasons,
+    required this.identificationConfidence,
+    required this.evidenceSummary,
     required this.estimatedGrade,
     required this.gradeExplanation,
     required this.frontImageUrl,

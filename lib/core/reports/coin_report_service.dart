@@ -1,8 +1,17 @@
 import '../../../core/recognition/recognition_models.dart';
 import '../../../core/storage/collection_storage_service.dart';
-import '../storage/models.dart';
 
-/// Structured shareable data representation of a coin report.
+/// Statement included in every shared report and PDF.
+const String kReportLimitationsStatement =
+    'This report records an AI-assisted identification of the coin type from '
+    'photographs. It is not a certificate, an authentication, or a professional '
+    'grade, and it does not confirm that the coin is genuine.';
+
+/// Structured shareable data representation of a coin identification report.
+///
+/// Every field is either data recorded for this coin or explicitly absent.
+/// Nothing is defaulted to make the report look more complete (no default
+/// confidence, grade, rarity, "verified" evidence or valuation).
 class CoinReportData {
   final String title;
   final String country;
@@ -10,11 +19,28 @@ class CoinReportData {
   final String denomination;
   final String? mintMark;
   final String? composition;
-  final String confidenceLevel;
-  final double? confidenceScore;
-  final String? valuationRange;
-  final List<String> keyEvidence;
+  final double? weightG;
+  final double? diameterMm;
+  final String? catalogueNumber;
   final String? numistaReference;
+
+  /// Human-readable identification confidence ("High", "Medium", "Low",
+  /// "Uncertain") or "Not recorded".
+  final String identificationConfidence;
+
+  /// Number of details cross-checked against the catalogue, when known.
+  final int? corroboratingChecks;
+
+  /// Evidence lines as recorded (label, detail and source).
+  final List<String> keyEvidence;
+
+  /// Bullion (melt) value text, e.g. "23.20 USD (spot as of 2026-09-29)".
+  final String? meltValue;
+
+  /// Collector/market range text, only when a verified price source provided one.
+  final String? valuationRange;
+
+  /// Condition grade, only when one was actually recorded.
   final String? conditionGrade;
   final String? frontImagePath;
   final String? reverseImagePath;
@@ -27,16 +53,27 @@ class CoinReportData {
     required this.denomination,
     this.mintMark,
     this.composition,
-    required this.confidenceLevel,
-    this.confidenceScore,
-    this.valuationRange,
-    this.keyEvidence = const [],
+    this.weightG,
+    this.diameterMm,
+    this.catalogueNumber,
     this.numistaReference,
+    required this.identificationConfidence,
+    this.corroboratingChecks,
+    this.keyEvidence = const [],
+    this.meltValue,
+    this.valuationRange,
     this.conditionGrade,
     this.frontImagePath,
     this.reverseImagePath,
     required this.generatedAt,
   });
+
+  static String levelLabel(ConfidenceLevel level) => switch (level) {
+    ConfidenceLevel.high => 'High',
+    ConfidenceLevel.medium => 'Medium',
+    ConfidenceLevel.low => 'Low',
+    ConfidenceLevel.indeterminate => 'Uncertain',
+  };
 
   factory CoinReportData.fromCandidate(
     RecognitionCandidate candidate, {
@@ -44,46 +81,56 @@ class CoinReportData {
     String? frontPath,
     String? reversePath,
   }) {
-    String? valRange;
-    if (valuation != null && valuation.status != ValuationStatus.unavailable) {
+    String? range;
+    String? melt;
+    if (valuation != null) {
+      final code = valuation.currencyCode;
       for (final est in valuation.estimates) {
-        if (est.type == ValuationType.marketEstimate && est.low != null && est.high != null) {
-          valRange = '\$${est.low!.toStringAsFixed(0)} – \$${est.high!.toStringAsFixed(0)} ${valuation.currencyCode}';
-          break;
+        if ((est.type == ValuationType.marketEstimate ||
+                est.type == ValuationType.collectorValue) &&
+            est.low != null &&
+            est.high != null &&
+            range == null) {
+          range =
+              '${est.low!.toStringAsFixed(0)} – ${est.high!.toStringAsFixed(0)} $code';
+        }
+        if (est.type == ValuationType.metalValue && est.mid != null) {
+          melt = '${est.mid!.toStringAsFixed(2)} $code (${est.source})';
         }
       }
     }
 
-    final evidenceItems = <String>[];
-    if (candidate.identity.year != null) {
-      evidenceItems.add('Date verified: ${candidate.identity.year}');
-    }
-    if (candidate.identity.country.isNotEmpty) {
-      evidenceItems.add('Issuing authority: ${candidate.identity.country}');
-    }
-    if (candidate.identity.mint != null) {
-      evidenceItems.add('Mint facility: ${candidate.identity.mint}');
-    }
-    if (candidate.identity.composition != null) {
-      evidenceItems.add('Composition: ${candidate.identity.composition}');
-    }
-    if (candidate.identity.weightG != null) {
-      evidenceItems.add('Weight specification: ${candidate.identity.weightG}g');
-    }
+    final evidence = [
+      for (final e in candidate.evidence)
+        [
+          e.label,
+          if (e.detail.isNotEmpty) e.detail,
+          if (e.source != null && e.source!.isNotEmpty) 'Source: ${e.source}',
+        ].join(' — '),
+    ];
 
+    final id = candidate.identity;
     return CoinReportData(
       title: candidate.formattedTitle,
-      country: candidate.identity.country,
-      year: candidate.identity.year,
-      denomination: candidate.identity.denomination,
-      mintMark: candidate.identity.mint,
-      composition: candidate.identity.composition,
-      confidenceLevel: candidate.confidence?.level.name.toUpperCase() ?? 'IDENTIFIED',
-      confidenceScore: candidate.confidence?.overallScore,
-      valuationRange: valRange,
-      keyEvidence: evidenceItems,
-      numistaReference: candidate.identity.numistaId != null ? 'Numista N# ${candidate.identity.numistaId}' : null,
-      conditionGrade: 'Circulated Estimate',
+      country: id.country,
+      year: id.year,
+      denomination: id.denomination,
+      mintMark: id.mint,
+      composition: id.composition,
+      weightG: id.weightG,
+      diameterMm: id.diameterMm,
+      catalogueNumber: id.kmNumber,
+      numistaReference: id.numistaId != null ? 'Numista N# ${id.numistaId}' : null,
+      identificationConfidence: candidate.confidence != null
+          ? levelLabel(candidate.confidence!.level)
+          : 'Not recorded',
+      corroboratingChecks: candidate.confidence?.corroboratingChecks,
+      keyEvidence: evidence,
+      meltValue: melt,
+      valuationRange: range,
+      conditionGrade: (candidate.conditionGrade?.trim().isNotEmpty ?? false)
+          ? candidate.conditionGrade
+          : null,
       frontImagePath: frontPath,
       reverseImagePath: reversePath,
       generatedAt: DateTime.now(),
@@ -91,6 +138,8 @@ class CoinReportData {
   }
 
   factory CoinReportData.fromVaultItem(VaultCoinItem item) {
+    final level = item.confidenceLevel?.trim();
+    final grade = (item.conditionEstimate ?? item.grade)?.trim();
     return CoinReportData(
       title: item.coinName,
       country: item.country,
@@ -98,12 +147,18 @@ class CoinReportData {
       denomination: item.denomination,
       mintMark: item.mintMark,
       composition: item.composition,
-      confidenceLevel: item.confidenceLevel?.toUpperCase() ?? 'VERIFIED VAULT ITEM',
-      confidenceScore: item.confidenceScore,
-      valuationRange: item.valuationRange,
-      keyEvidence: item.keyEvidence,
+      weightG: item.weightG,
+      diameterMm: item.diameterMm,
+      catalogueNumber: item.kmNumber,
       numistaReference: item.numistaId != null ? 'Numista N# ${item.numistaId}' : null,
-      conditionGrade: item.conditionEstimate ?? item.grade,
+      identificationConfidence:
+          (level != null && level.isNotEmpty) ? level : 'Not recorded',
+      keyEvidence: item.keyEvidence,
+      meltValue: item.meltValue != null
+          ? '${item.meltValue!.toStringAsFixed(2)} ${item.currencyCode}'
+          : null,
+      valuationRange: item.valuationRange,
+      conditionGrade: (grade != null && grade.isNotEmpty) ? grade : null,
       frontImagePath: item.frontImagePath,
       reverseImagePath: item.reverseImagePath,
       generatedAt: DateTime.now(),
@@ -113,67 +168,31 @@ class CoinReportData {
   /// Generates a clean text summary for clipboard or message sharing.
   String toShareableText() {
     final buffer = StringBuffer();
-    buffer.writeln('════════════════════════════════');
-    buffer.writeln('🪙 COINSCAN NUMISMATIC REPORT');
-    buffer.writeln('════════════════════════════════');
+    buffer.writeln('CoinScan identification report');
     buffer.writeln('Coin: $title');
     buffer.writeln('Country: $country');
-    if (year != null) buffer.writeln('Year: $year');
+    if (year != null) buffer.writeln('Year (read from photo): $year');
     buffer.writeln('Denomination: $denomination');
-    if (mintMark != null && mintMark!.isNotEmpty) buffer.writeln('Mint Mark: $mintMark');
-    if (composition != null && composition!.isNotEmpty) buffer.writeln('Composition: $composition');
-    buffer.writeln('Identification Confidence: $confidenceLevel');
-    if (valuationRange != null) buffer.writeln('Estimated Market Range: $valuationRange');
-    if (conditionGrade != null) buffer.writeln('Condition Estimate: $conditionGrade');
+    if (mintMark != null && mintMark!.isNotEmpty) {
+      buffer.writeln('Mint mark (read from photo): $mintMark');
+    }
+    if (composition != null && composition!.isNotEmpty) {
+      buffer.writeln('Composition (catalogue): $composition');
+    }
+    buffer.writeln('Identification confidence: $identificationConfidence');
+    buffer.writeln('Authenticity: not assessed');
+    if (meltValue != null) buffer.writeln('Melt value: $meltValue');
+    if (valuationRange != null) buffer.writeln('Market range: $valuationRange');
+    if (conditionGrade != null) buffer.writeln('Condition (recorded): $conditionGrade');
     if (numistaReference != null) buffer.writeln('Catalogue: $numistaReference');
 
     if (keyEvidence.isNotEmpty) {
-      buffer.writeln('\nWhy We Identified This:');
+      buffer.writeln('\nEvidence:');
       for (final e in keyEvidence) {
         buffer.writeln('• $e');
       }
     }
-
-    buffer.writeln('\nGenerated by CoinScan — Your Personal Numismatics Assistant');
-    buffer.writeln('coinscan.app');
+    buffer.writeln('\n$kReportLimitationsStatement');
     return buffer.toString();
-  }
-
-  CollectibleModel toCollectibleModel() {
-    return CollectibleModel(
-      id: 'rpt_${title.hashCode.abs()}',
-      type: CollectibleType.coin,
-      name: title,
-      country: country,
-      year: year ?? 0,
-      denomination: denomination,
-      mintMark: mintMark ?? '',
-      composition: composition ?? 'Standard Issue',
-      weightG: 0.0,
-      diameterMm: 0.0,
-      thicknessMm: 0.0,
-      shape: 'Round',
-      edgeType: 'Reeded',
-      mint: mintMark != null && mintMark!.isNotEmpty ? 'Mint: $mintMark' : 'Standard Strike',
-      designer: '',
-      historicalPeriod: year != null ? (year! < 1900 ? 'Historic Pre-1900' : 'Modern Circulating') : 'Historic',
-      rarity: RarityLevel.uncommon,
-      authenticityConfidence: confidenceScore ?? 0.88,
-      authenticityReasons: keyEvidence.isNotEmpty ? keyEvidence : ['Verified numismatic design, date and alloy match.'],
-      estimatedGrade: conditionGrade ?? 'Circulated',
-      gradeExplanation: 'Condition estimate derived from visible surface details.',
-      frontImageUrl: frontImagePath ?? '',
-      backImageUrl: reverseImagePath ?? '',
-      historicalInfo: 'Numismatic report generated by CoinScan.',
-      category: 'Circulating Issue',
-      retailPrice: 0.0,
-      auctionPrice: 0.0,
-      dealerPrice: 0.0,
-      collectorPrice: 0.0,
-      minPrice: 0.0,
-      maxPrice: 0.0,
-      priceTrendPercentage: 0.0,
-      investmentRating: '',
-    );
   }
 }

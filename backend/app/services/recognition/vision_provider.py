@@ -29,7 +29,8 @@ class RawVisionObservation(BaseModel):
     contradiction_notes: Optional[str] = None
     candidate_varieties: List[str] = Field(default_factory=list)
     confidence_reasoning: str = ""
-    visual_similarity_score: float = Field(default=0.8, ge=0.0, le=1.0)
+    # The vision model's SELF-reported similarity; uncalibrated. Neutral when omitted.
+    visual_similarity_score: float = Field(default=0.5, ge=0.0, le=1.0)
 
 
 class VisionProviderError(Exception):
@@ -161,7 +162,7 @@ def safe_parse_vision_response(text: str) -> RawVisionObservation:
         except (ValueError, TypeError):
             raw_dict["visual_similarity_score"] = 0.5
     else:
-        raw_dict["visual_similarity_score"] = 0.8
+        raw_dict["visual_similarity_score"] = 0.5  # omitted by the model: neutral, never optimistic
 
     valid_fields = RawVisionObservation.model_fields.keys()
     filtered_dict = {k: v for k, v in raw_dict.items() if k in valid_fields}
@@ -295,6 +296,9 @@ class GeminiVisionProvider(VisionProvider):
         return safe_parse_vision_response(text)
 
 
+OPENAI_MAX_COMPLETION_TOKENS = 1500
+
+
 class OpenAIVisionProvider(VisionProvider):
     """OpenAI GPT-4o-mini Vision Provider."""
 
@@ -336,6 +340,10 @@ class OpenAIVisionProvider(VisionProvider):
             "messages": [{"role": "user", "content": content}],
             "response_format": {"type": "json_object"},
             "temperature": 0.1,
+            # Cost and latency ceiling. The expected JSON is a few hundred tokens;
+            # without a cap, JSON mode can run on (e.g. emitting whitespace) until
+            # the model's maximum, which the 15 s timeout would cut off anyway.
+            "max_completion_tokens": OPENAI_MAX_COMPLETION_TOKENS,
         }
 
         headers = {"Authorization": f"Bearer {self.api_key}"}

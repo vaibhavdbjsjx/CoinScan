@@ -9,16 +9,19 @@ import 'package:flutter_animate/flutter_animate.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:permission_handler/permission_handler.dart';
 
+import '../../core/auth/auth_service.dart';
 import '../../core/recognition/recognition_models.dart';
 import '../../core/recognition/image_preprocessing_service.dart';
 import '../../core/reports/coin_report_service.dart';
 import '../../core/storage/collection_storage_service.dart';
 import '../../core/storage/scan_history_service.dart';
+import '../../core/subscriptions/entitlement_models.dart';
 import '../../core/theme/colors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../main.dart';
 import '../collection/collection_detail_screen.dart';
+import '../onboarding/account_prompt.dart';
 import '../subscription/paywall_screen.dart';
 import 'widgets/coin_report_sheet.dart';
 import 'widgets/evidence_result_widgets.dart';
@@ -50,6 +53,7 @@ class ScanScreen extends StatefulWidget {
 class _ScanScreenState extends State<ScanScreen>
     with TickerProviderStateMixin, WidgetsBindingObserver {
   final ImagePicker _imagePicker = ImagePicker();
+  static const double _galleryMaxDimension = 4096;
   final Map<CaptureSide, _CapturedImageData> _captures = {};
 
   late final RecognitionService _recognitionService =
@@ -168,12 +172,17 @@ class _ScanScreenState extends State<ScanScreen>
       _cameraMessage = null;
     });
 
-    final currentStatus = await Permission.camera.status;
     final PermissionStatus permission;
-    if (currentStatus.isGranted) {
-      permission = currentStatus;
+    if (kIsWeb) {
+      // Browsers ask for camera access when the camera is opened below (a
+      // refusal arrives as a CameraException). Their Permissions API does not
+      // support a "camera" query everywhere, so it is not consulted.
+      permission = PermissionStatus.granted;
     } else {
-      permission = await Permission.camera.request();
+      final currentStatus = await Permission.camera.status;
+      permission = currentStatus.isGranted
+          ? currentStatus
+          : await Permission.camera.request();
     }
     if (!mounted) return;
 
@@ -229,8 +238,12 @@ class _ScanScreenState extends State<ScanScreen>
         return;
       }
 
-      await controller.setFlashMode(FlashMode.off);
-      await controller.setFocusMode(FocusMode.auto);
+      // Browsers expose neither torch nor focus control (the web camera
+      // plugin throws for both), so this tuning is mobile-only.
+      if (!kIsWeb) {
+        await controller.setFlashMode(FlashMode.off);
+        await controller.setFocusMode(FocusMode.auto);
+      }
 
       if (!mounted || _cameraController != controller) {
         await controller.dispose();
@@ -328,6 +341,12 @@ class _ScanScreenState extends State<ScanScreen>
       final file = await _imagePicker.pickImage(
         source: ImageSource.gallery,
         requestFullMetadata: true,
+        // A size limit makes Android re-encode the picked photo (HEIC/HEIF
+        // included) to JPEG/PNG, which the image decoder can read; without one
+        // the original file is returned. iOS already converts HEIC to JPEG.
+        // 4096 px matches the server's maximum accepted dimension.
+        maxWidth: _galleryMaxDimension,
+        maxHeight: _galleryMaxDimension,
       );
       if (file == null) return;
 
@@ -411,6 +430,7 @@ class _ScanScreenState extends State<ScanScreen>
 
   Future<void> _triggerAnalysis() async {
     if (_isProcessing) return;
+    final stepBeforeAnalysis = _captureStep;
     setState(() {
       _isProcessing = true;
       _captureStep = _CaptureStep.analyzing;
@@ -426,7 +446,21 @@ class _ScanScreenState extends State<ScanScreen>
 
     // Check scan quota before proceeding
     final subService = SubscriptionProvider.maybeOf(context);
-    if (subService != null) {
+    if (!AuthService.instance.currentState.isAuthenticated) {
+      // Guests: the server's guest allowance decides. The local count only
+      // skips a request that would certainly be refused. Guests cannot buy a
+      // plan, so the way forward is a free account, not the paywall.
+      final used = (await subService?.currentEntitlement())?.scansUsedToday ?? 0;
+      if (used >= TierQuota.guestDaily) {
+        if (!mounted) return;
+        setState(() {
+          _isProcessing = false;
+          _captureStep = stepBeforeAnalysis;
+        });
+        await _promptGuestLimit();
+        return;
+      }
+    } else if (subService != null) {
       final entitlement = await subService.currentEntitlement();
       if (!entitlement.canScan) {
         if (!mounted) return;
@@ -476,6 +510,10 @@ class _ScanScreenState extends State<ScanScreen>
         _isProcessing = false;
         _recognitionResult = result;
       });
+      if (result.guestLimitReached) {
+        unawaited(_promptGuestLimit(result.message));
+        return;
+      }
 
       // Record scan usage against quota ONLY upon successful identification
       final isRecognitionSuccessful = result.candidates.isNotEmpty &&
@@ -515,6 +553,16 @@ class _ScanScreenState extends State<ScanScreen>
       _showCaptureProblem('Recognition failed. Please check your connection and try again.');
       debugPrint('Recognition error: $e');
     }
+  }
+
+  Future<void> _promptGuestLimit([String? message]) {
+    return promptForAccount(
+      context,
+      title: 'You’ve used today’s free scans',
+      message: message ??
+          'Guests can identify ${TierQuota.guestDaily} coins a day. Create a free '
+              'account to keep scanning and save coins to your vault.',
+    );
   }
 
   void _continueToReverseFromResults() {
@@ -1355,6 +1403,29 @@ class _RecognitionResultViewState extends State<_RecognitionResultView> {
     final candidate = widget.result.primaryCandidate;
     if (candidate == null || _isSaved || _isSaving) return;
 
+    // The vault lives in the user's account. A guest signs in first and then
+    // taps Save again: nothing is saved (or moved into the account) silently.
+    if (!AuthService.instance.currentState.isAuthenticated) {
+      final signedIn = await promptForAccount(
+        context,
+        title: 'Sign in to save coins',
+        message:
+            'Your vault is kept in your CoinScan account, so it’s backed up and '
+            'on your other devices. Sign in or create a free account, then tap '
+            'Save to Vault again.',
+      );
+      if (!signedIn || !mounted) return;
+      unawaited(_checkForDuplicates());
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          key: ValueKey('signed_in_tap_save_again'),
+          content: Text('You’re signed in. Tap Save to Vault to add this coin.'),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
 
     try {
@@ -1371,12 +1442,9 @@ class _RecognitionResultViewState extends State<_RecognitionResultView> {
       final meltVal = valuation?.meltValue;
       final catVal = valuation?.catalogueValue;
       final confScore = candidate.confidence?.overallScore;
+      // Use the service's corroboration-gated level, never a local re-derivation.
       final confLevel = candidate.confidence != null
-          ? (candidate.confidence!.overallScore >= 0.85
-              ? 'High'
-              : candidate.confidence!.overallScore >= 0.60
-                  ? 'Medium'
-                  : 'Low')
+          ? CoinReportData.levelLabel(candidate.confidence!.level)
           : null;
 
       final valHigh = valuation?.marketHigh;
@@ -1386,7 +1454,15 @@ class _RecognitionResultViewState extends State<_RecognitionResultView> {
               ? (valHigh + valLow) / 2.0
               : valHigh ?? valLow ?? valuation?.meltValue);
 
-      final keyEvidence = candidate.evidence.map((e) => '${e.label}: ${e.detail}').toList();
+      final keyEvidence = candidate.evidence
+          .map(
+            (e) => [
+              e.label,
+              if (e.detail.isNotEmpty) e.detail,
+              if (e.source != null && e.source!.isNotEmpty) 'Source: ${e.source}',
+            ].join(' — '),
+          )
+          .toList();
 
       final newItem = VaultCoinItem(
         id: 'vault_${DateTime.now().millisecondsSinceEpoch}',
@@ -1656,6 +1732,7 @@ class _RecognitionResultViewState extends State<_RecognitionResultView> {
                       children: [
                         Expanded(
                           child: FilledButton.icon(
+                            key: const ValueKey('save_to_vault'),
                             onPressed: _isSaved ? null : _saveToCollection,
                             icon: Icon(
                               _isSaved
@@ -1770,11 +1847,11 @@ class _RecognitionResultViewState extends State<_RecognitionResultView> {
   Widget _buildStatusBadge(RecognitionStatus status) {
     final (label, color) = switch (status) {
       RecognitionStatus.identified => ('Identified', AppColors.emerald),
-      RecognitionStatus.candidate => ('Candidate Match', AppColors.gold),
-      RecognitionStatus.lowConfidence => ('Low Confidence', AppColors.amber),
+      RecognitionStatus.candidate => ('Probable Match', AppColors.gold),
+      RecognitionStatus.lowConfidence => ('Possible Match', AppColors.amber),
       RecognitionStatus.insufficientQuality => ('Poor Quality', AppColors.amber),
       RecognitionStatus.unknown => ('Unidentified', Colors.white60),
-      RecognitionStatus.unavailable => ('Backend Offline', Colors.white60),
+      RecognitionStatus.unavailable => ('Service Unavailable', Colors.white60),
       RecognitionStatus.error => ('Scan Error', AppColors.crimson),
     };
 
@@ -1969,7 +2046,7 @@ class _RecognitionResultViewState extends State<_RecognitionResultView> {
                   const SizedBox(width: 6),
                   Flexible(
                     child: Text(
-                      'Numista N# ${id.numistaId} • Verified Catalogue Specs',
+                      'Numista N# ${id.numistaId} • Catalogue record',
                       style: AppTypography.captionSmall.copyWith(
                         color: AppColors.textOnInkMuted,
                         fontWeight: FontWeight.w600,

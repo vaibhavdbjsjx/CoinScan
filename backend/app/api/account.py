@@ -88,36 +88,64 @@ class AccountDataExportResponse(BaseModel):
     feedback_submissions: List[Dict[str, Any]]
 
 
+class SupabaseAuthDeletionError(Exception):
+    """The Supabase Auth user could not be deleted; nothing else has been deleted."""
+
+
+def _supabase_admin_headers(admin_key: str) -> Dict[str, str]:
+    """Headers for the Supabase Auth Admin API.
+
+    New secret keys (sb_secret_...) are not JWTs and go in the apikey header only.
+    The legacy service_role key is a JWT and is also sent as the bearer token.
+    """
+    if admin_key.startswith("sb_secret_"):
+        return {"apikey": admin_key}
+    return {"apikey": admin_key, "Authorization": f"Bearer {admin_key}"}
+
+
+def supabase_admin_configured() -> bool:
+    return bool(settings.supabase_url and settings.supabase_admin_key)
+
+
 async def delete_supabase_auth_user(user_id: str) -> bool:
     """
-    Permanently deletes user credentials from Supabase auth.users via
-    the Supabase GoTrue Admin API. Requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.
+    Permanently deletes the user's login from Supabase auth.users via the Auth
+    Admin API (SUPABASE_URL + SUPABASE_SECRET_KEY or SUPABASE_SERVICE_ROLE_KEY).
+
+    Returns True when the user is gone (deleted now, or already absent) and False
+    when the admin credential is not configured (development/test only: the
+    endpoint refuses deletion in staging/production before getting here).
+    Raises SupabaseAuthDeletionError on any other outcome.
     """
-    if not settings.supabase_url or not settings.supabase_service_role_key:
-        logger.warning(
-            f"Supabase Admin API credentials not configured; skipping auth.users deletion for user={user_id}"
-        )
+    if not supabase_admin_configured():
+        logger.warning("Supabase admin credential not configured; auth.users deletion skipped.")
         return False
 
-    url = f"{settings.supabase_url.rstrip('/')}/auth/v1/admin/users/{user_id}"
-    headers = {
-        "Authorization": f"Bearer {settings.supabase_service_role_key}",
-        "apikey": settings.supabase_service_role_key,
-    }
+    # Supabase Auth user ids are UUIDs. Anything else is refused rather than
+    # placed in the Admin API path.
+    try:
+        user_uuid = str(uuid.UUID(str(user_id)))
+    except (ValueError, TypeError, AttributeError):
+        raise SupabaseAuthDeletionError("User id is not a Supabase Auth user id.") from None
+
+    url = f"{settings.supabase_url.rstrip('/')}/auth/v1/admin/users/{user_uuid}"
+    headers = _supabase_admin_headers(settings.supabase_admin_key)
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             resp = await client.delete(url, headers=headers)
-            if resp.status_code in (200, 204, 404):
-                logger.info(f"Supabase auth.users record purged for user={user_id} (status: {resp.status_code})")
-                return True
-            else:
-                logger.error(
-                    f"Failed to purge Supabase auth.users for user={user_id}: HTTP {resp.status_code} {resp.text}"
-                )
-                return False
     except Exception as e:
-        logger.error(f"Error calling Supabase GoTrue Admin API for user={user_id}: {e}")
-        return False
+        logger.error(f"Supabase Auth Admin API unreachable for user={user_uuid}: {type(e).__name__}")
+        raise SupabaseAuthDeletionError("Supabase Auth Admin API unreachable.") from None
+
+    if resp.status_code in (200, 204):
+        logger.info(f"Supabase auth.users record deleted for user={user_uuid}")
+        return True
+    if resp.status_code == 404:
+        logger.info(f"Supabase auth.users record already absent for user={user_uuid}")
+        return True
+    # The response body is not logged: it may echo request details.
+    logger.error(f"Supabase Auth Admin API refused deletion for user={user_uuid}: HTTP {resp.status_code}")
+    raise SupabaseAuthDeletionError(f"Supabase Auth Admin API returned HTTP {resp.status_code}.")
 
 
 class AccountStore:
@@ -362,7 +390,12 @@ class AccountStore:
     async def delete_collection_item_async(self, user_id: str, item_id: str) -> bool:
         self._check_persistence_mode()
         deleted = False
-        if is_db_configured():
+        try:
+            uuid.UUID(str(item_id))
+            is_uuid = True
+        except (ValueError, TypeError, AttributeError):
+            is_uuid = False  # cannot exist in the UUID-keyed table: just "not found"
+        if is_uuid and is_db_configured():
             factory = get_session_factory()
             if factory:
                 async with factory() as session:
@@ -490,7 +523,18 @@ class AccountStore:
         }
 
     async def delete_account_async(self, user_id: str) -> Dict[str, int]:
+        """Deletes the Supabase login first, then every row the API owns.
+
+        In the Supabase schema public.users references auth.users ON DELETE
+        CASCADE, so deleting the login also removes the user's rows in the same
+        transaction. If the login cannot be deleted, SupabaseAuthDeletionError is
+        raised before anything else is touched and the user can simply retry.
+        The explicit cleanup below covers databases without that foreign key and
+        the in-process state.
+        """
         self._check_persistence_mode()
+        auth_deleted = await delete_supabase_auth_user(user_id)
+
         purged = self.delete_account(user_id)
         if is_db_configured():
             factory = get_session_factory()
@@ -508,9 +552,7 @@ class AccountStore:
                         await session.execute(delete(UserLegalConsent).where(UserLegalConsent.user_id == user_id))
                         await session.execute(delete(User).where(User.id == user_id))
                     await session.commit()
-        auth_purged = await delete_supabase_auth_user(user_id)
-        if auth_purged:
-            purged["supabase_auth_users"] = 1
+        purged["supabase_auth_users"] = 1 if auth_deleted else 0
         return purged
 
     def reset_for_test(self):
@@ -704,8 +746,36 @@ async def delete_account_endpoint(
             detail="Confirmation phrase mismatch. Please enter 'DELETE MY ACCOUNT' to confirm.",
         )
 
+    # Only a signed-in Supabase session may delete an account: never a developer
+    # API key, and never an id taken from the request. The id is the verified
+    # token subject.
+    if current_user.auth_method != "jwt":
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Account deletion requires a signed-in user session.",
+        )
+
+    # In staging/production the login itself must be deletable. Without the admin
+    # credential, refuse before anything is deleted rather than removing the data
+    # and leaving a working login behind.
+    if settings.is_hardened and not supabase_admin_configured():
+        logger.error(
+            "Account deletion refused: SUPABASE_URL and SUPABASE_SECRET_KEY "
+            "(or SUPABASE_SERVICE_ROLE_KEY) are required."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Account deletion is temporarily unavailable. Nothing was deleted; please try again later.",
+        )
+
     now = time.time()
-    purged_metrics = await account_store.delete_account_async(current_user.user_id)
+    try:
+        purged_metrics = await account_store.delete_account_async(current_user.user_id)
+    except SupabaseAuthDeletionError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Your account could not be deleted right now. Nothing was deleted; please try again.",
+        ) from None
 
     return AccountDeletionResponse(
         status="success",

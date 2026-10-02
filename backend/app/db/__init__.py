@@ -24,6 +24,7 @@ from backend.app.db.models import (
     Feedback,
     SecurityEvent,
     UserLegalConsent,
+    GuestScanUsage,
 )
 
 __all__ = [
@@ -45,4 +46,5 @@ __all__ = [
     "Feedback",
     "SecurityEvent",
     "UserLegalConsent",
+    "GuestScanUsage",
 ]

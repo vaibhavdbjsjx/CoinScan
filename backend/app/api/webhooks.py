@@ -86,6 +86,7 @@ import time
 from backend.app.db.session import is_db_configured, get_session_factory
 from backend.app.db.models import User, Entitlement, SubscriptionEvent
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 _TIER_RANK = {
     SubscriptionTier.ANONYMOUS: 0,
@@ -159,6 +160,23 @@ def resolve_subscriber_id(event: RevenueCatEvent) -> Optional[str]:
         if _is_uuid(candidate):
             return str(candidate)
     return event.app_user_id
+
+
+def _event_order_ms(event: Dict[str, Any]) -> Optional[int]:
+    """The timestamp used to order a subscriber's events (same rule for live and stored events)."""
+    for key in ("event_timestamp_ms", "purchased_at_ms", "expiration_at_ms"):
+        value = event.get(key)
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+    return None
+
+
+# Events that change a subscriber's entitlement; only these take part in ordering.
+_STATE_CHANGING_EVENTS = {
+    "INITIAL_PURCHASE", "RENEWAL", "UNCANCELLATION", "SUBSCRIPTION_EXTENDED", "REFUND_REVERSED",
+    "TEMPORARY_ENTITLEMENT_GRANT", "NON_RENEWING_PURCHASE",
+    "CANCELLATION", "EXPIRATION", "REVOCATION", "BILLING_ISSUE", "TRANSFER",
+}
 
 
 def _ms_to_datetime(ms: Optional[int]) -> Optional[datetime]:
@@ -252,7 +270,7 @@ class WebhookStateManager:
                         await session.commit()
                     except Exception as e:
                         # A concurrent delivery of the same event already recorded it.
-                        logger.warning(f"Could not persist subscription event to DB: {e}")
+                        logger.warning(f"Could not persist subscription event to DB: {type(e).__name__}")
                         await session.rollback()
         self.mark_processed(event_id)
 
@@ -260,6 +278,39 @@ class WebhookStateManager:
         """True when a newer event has already been applied for this user (this process)."""
         current = self._user_entitlements.get(user_id)
         return current is not None and timestamp_ms < current[1]
+
+    async def is_stale_async(self, user_id: str, timestamp_ms: int) -> bool:
+        """True when a newer state-changing event was already processed for this user.
+
+        Uses the recorded events in the database as well as this process's memory,
+        so ordering survives restarts and redeploys and holds across workers:
+        RevenueCat may deliver (or retry) an older event after a newer one.
+        Raises EntitlementPersistenceError when the history cannot be read, so the
+        event is retried instead of possibly overwriting newer state.
+        """
+        if self.is_stale(user_id, timestamp_ms):
+            return True
+        if not user_id or not is_db_configured():
+            return False
+        factory = get_session_factory()
+        if factory is None:
+            return False
+        try:
+            async with factory() as session:
+                stmt = select(SubscriptionEvent.raw_payload).where(
+                    SubscriptionEvent.app_user_id == user_id,
+                    SubscriptionEvent.event_type.in_(_STATE_CHANGING_EVENTS),
+                )
+                payloads = (await session.execute(stmt)).scalars().all()
+        except Exception as db_err:
+            logger.error(f"Could not read subscription history for user={user_id}: {type(db_err).__name__}")
+            raise EntitlementPersistenceError("subscription history unavailable") from None
+        for payload in payloads:
+            stored = (payload or {}).get("event") if isinstance(payload, dict) else None
+            stored_ts = _event_order_ms(stored) if isinstance(stored, dict) else None
+            if stored_ts is not None and timestamp_ms < stored_ts:
+                return True
+        return False
 
     def set_user_tier(
         self,
@@ -317,13 +368,14 @@ class WebhookStateManager:
                                 user = User(id=user_uuid, email=f"{user_id}@coinscan.app")
                                 session.add(user)
                                 await session.flush()
-                            except Exception as fk_err:
+                            except IntegrityError:
                                 # No matching Supabase auth user (e.g. deleted account):
-                                # there is nobody to grant the entitlement to.
+                                # there is nobody to grant the entitlement to. Any other
+                                # database error falls through to the retryable path below.
                                 await session.rollback()
                                 logger.warning(
                                     f"Cannot auto-create User({user_id}) in public.users "
-                                    f"(no matching auth.users row): {fk_err}"
+                                    "(no matching auth.users row); entitlement not stored."
                                 )
                                 return updated
                         ent = await session.get(Entitlement, user_uuid)
@@ -335,8 +387,9 @@ class WebhookStateManager:
                         ent.expires_at = _ms_to_datetime(expires_at_ms)
                         await session.commit()
                 except Exception as db_err:
+                    # Exception text can include SQL parameters: log the type only.
                     logger.error(
-                        f"Database error persisting entitlement for user={user_id}: {db_err}"
+                        f"Database error persisting entitlement for user={user_id}: {type(db_err).__name__}"
                     )
                     raise EntitlementPersistenceError(str(db_err)) from db_err
         return updated
@@ -370,7 +423,7 @@ class WebhookStateManager:
                                 return SubscriptionTier.FREE, expires_ms
                             return tier, expires_ms
                 except Exception as e:
-                    logger.warning(f"Error reading tier from DB for user={user_id}: {e}")
+                    logger.warning(f"Error reading tier from DB for user={user_id}: {type(e).__name__}")
         return self.get_user_tier(user_id), self._user_expiry.get(user_id)
 
     async def get_user_tier_async(self, user_id: str) -> SubscriptionTier:
@@ -571,7 +624,7 @@ async def handle_revenuecat_webhook(
         )
 
     # 3. Process Event by Type
-    event_ts = event.event_timestamp_ms or event.purchased_at_ms or event.expiration_at_ms or _now_ms()
+    event_ts = _event_order_ms(event.model_dump()) or _now_ms()
     state_changing = _GRANT_EVENTS | {"CANCELLATION", "EXPIRATION", "REVOCATION", "BILLING_ISSUE"}
 
     try:
@@ -584,7 +637,7 @@ async def handle_revenuecat_webhook(
         elif not user_id:
             action_taken, resolved_tier = "missing_app_user_id_ignored", SubscriptionTier.FREE
 
-        elif event_type in state_changing and webhook_state.is_stale(user_id, event_ts):
+        elif event_type in state_changing and await webhook_state.is_stale_async(user_id, event_ts):
             action_taken = "out_of_order_event_ignored"
             resolved_tier = await webhook_state.get_user_tier_async(user_id)
 

@@ -30,6 +30,10 @@ class RevenueCatSubscriptionService implements SubscriptionService {
   DateTime _lastResetDate;
   bool _isConfigured = false;
 
+  /// The CoinScan account (Supabase user ID) RevenueCat is identified with.
+  /// Null while signed out, when RevenueCat only has an anonymous ID.
+  String? _accountId;
+
   final StreamController<EntitlementState> _stateController =
       StreamController<EntitlementState>.broadcast();
 
@@ -76,6 +80,7 @@ class RevenueCatSubscriptionService implements SubscriptionService {
       await Purchases.configure(config);
       Purchases.addCustomerInfoUpdateListener(_onCustomerInfoUpdated);
       _isConfigured = true;
+      _accountId = appUserId;
       debugPrint('[RevenueCat] SDK configured. appUserId=$appUserId');
       await _refreshFromCustomerInfo();
     } on PlatformException catch (e) {
@@ -87,7 +92,7 @@ class RevenueCatSubscriptionService implements SubscriptionService {
   void _onCustomerInfoUpdated(CustomerInfo info) {
     final newState = _mapCustomerInfo(info, _scansToday);
     _applyState(newState);
-    debugPrint('[RevenueCat] CustomerInfo push. plan=${newState.plan.name}');
+    debugPrint('[RevenueCat] CustomerInfo push. plan=${_state.plan.name}');
   }
 
   // ─── User Identity ────────────────────────────────────────────────────────
@@ -96,14 +101,18 @@ class RevenueCatSubscriptionService implements SubscriptionService {
     if (!_isConfigured) return;
     try {
       final result = await Purchases.logIn(supabaseUuid);
+      _accountId = supabaseUuid;
       _applyState(_mapCustomerInfo(result.customerInfo, _scansToday));
       debugPrint('[RevenueCat] logIn: uuid=$supabaseUuid created=${result.created}');
     } on PlatformException catch (e) {
       debugPrint('[RevenueCat] logIn error: ${e.message}');
+      // Identity unknown: block purchases until a log-in succeeds.
+      if (_accountId != supabaseUuid) _accountId = null;
     }
   }
 
   Future<void> logOut() async {
+    _accountId = null;
     if (!_isConfigured) return;
     try {
       await Purchases.logOut();
@@ -153,6 +162,7 @@ class RevenueCatSubscriptionService implements SubscriptionService {
         'Provide REVENUECAT_APPLE_KEY or REVENUECAT_GOOGLE_KEY via --dart-define.',
       );
     }
+    requireAccount(AuthService.instance.currentState, _accountId);
 
     Package? targetPackage;
     try {
@@ -204,6 +214,7 @@ class RevenueCatSubscriptionService implements SubscriptionService {
         'RevenueCat SDK is not configured. Cannot restore purchases.',
       );
     }
+    requireAccount(AuthService.instance.currentState, _accountId);
     try {
       final info = await Purchases.restorePurchases();
       final newState = _mapCustomerInfo(info, _scansToday);
@@ -248,8 +259,29 @@ class RevenueCatSubscriptionService implements SubscriptionService {
   }
 
   void _applyState(EntitlementState s) {
-    _state = s;
-    _stateController.add(s);
+    // Paid access belongs to a CoinScan account: an anonymous (signed-out)
+    // RevenueCat customer never unlocks a paid plan on this device.
+    final next = !AuthService.instance.currentState.isAuthenticated &&
+            s.plan != EntitlementPlan.limited
+        ? const EntitlementState.limited().copyWith(scansUsedToday: s.scansUsedToday)
+        : s;
+    _state = next;
+    _stateController.add(next);
+  }
+
+  /// Purchases and restores are only made for a signed-in account that
+  /// RevenueCat is identified with, so nothing is bought for, or restored
+  /// into, an anonymous guest.
+  @visibleForTesting
+  static void requireAccount(AuthState auth, String? revenueCatUserId) {
+    final userId = auth.user?.userId;
+    if (!auth.isAuthenticated || userId == null || revenueCatUserId != userId) {
+      throw const PurchaseException(
+        'Sign in to your CoinScan account to subscribe or restore purchases.',
+        isCancellation: false,
+        requiresAccount: true,
+      );
+    }
   }
 
   Future<void> _syncQuotaWithBackend() async {
@@ -500,6 +532,10 @@ class RevenueCatSubscriptionService implements SubscriptionService {
     int scansUsed,
   ) =>
       _mapCustomerInfo(info, scansUsed);
+
+  /// Feeds a CustomerInfo update through the same path as RevenueCat's listener.
+  @visibleForTesting
+  void applyCustomerInfoForTest(CustomerInfo info) => _onCustomerInfoUpdated(info);
 }
 
 /// Typed exception for purchase/restore failures surfaced to the UI.
@@ -510,7 +546,14 @@ class PurchaseException implements Exception {
   final String message;
   final bool isCancellation;
 
-  const PurchaseException(this.message, {required this.isCancellation});
+  /// The user must sign in before purchasing or restoring.
+  final bool requiresAccount;
+
+  const PurchaseException(
+    this.message, {
+    required this.isCancellation,
+    this.requiresAccount = false,
+  });
 
   @override
   String toString() => 'PurchaseException($message)';

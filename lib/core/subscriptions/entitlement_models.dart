@@ -34,6 +34,11 @@ enum SubscriptionStatus {
 class TierQuota {
   const TierQuota._();
 
+  /// Signed-out guests: 2 successful scans per UTC day. The server's guest
+  /// allowance is authoritative; the app only uses this to avoid a request
+  /// that would be refused.
+  static const int guestDaily = 2;
+
   /// Limited (free) users: 3 scans per day.
   static const int limitedDaily = 3;
 

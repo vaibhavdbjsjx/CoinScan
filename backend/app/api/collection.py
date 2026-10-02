@@ -75,6 +75,16 @@ class CollectionItemResponse(BaseModel):
     updated_at: float
 
 
+def _client_item_id(value: Optional[str]) -> Optional[str]:
+    """A client-chosen item id is kept only if it is a real UUID (the column type)."""
+    if not value:
+        return None
+    try:
+        return str(uuid.UUID(value))
+    except (ValueError, TypeError, AttributeError):
+        return None
+
+
 @router.post("", response_model=CollectionItemResponse)
 async def add_collection_item(
     item_in: CollectionItemCreate,
@@ -90,7 +100,7 @@ async def add_collection_item(
         )
 
     now = time.time()
-    item_id = item_in.id if (item_in.id and len(item_in.id) == 36) else str(uuid.uuid4())
+    item_id = _client_item_id(item_in.id) or str(uuid.uuid4())
 
     item_dict = {
         "id": item_id,

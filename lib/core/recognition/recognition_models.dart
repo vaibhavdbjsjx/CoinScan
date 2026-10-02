@@ -1,5 +1,9 @@
 export 'http_recognition_service.dart';
 export '../valuation/valuation_models.dart';
+export '../valuation/precious_metal.dart';
+import 'dart:typed_data';
+
+import '../valuation/precious_metal.dart';
 import '../valuation/valuation_models.dart';
 
 /// Physical side of the coin captured.
@@ -73,6 +77,11 @@ class CapturedCoinImage {
   final int fileSizeBytes;
   final String? mimeType;
 
+  /// The normalized JPEG, kept in memory for upload. Browsers have no file
+  /// system, so on the web this is the only copy (`path` is a blob URL there).
+  /// Not serialized.
+  final Uint8List? bytes;
+
   const CapturedCoinImage({
     required this.path,
     required this.source,
@@ -82,6 +91,7 @@ class CapturedCoinImage {
     required this.height,
     required this.fileSizeBytes,
     this.mimeType,
+    this.bytes,
   });
 
   Map<String, dynamic> toJson() => {
@@ -319,6 +329,10 @@ class RecognitionConfidence {
   final double metadataScore;
   final String explanation;
 
+  /// How many details read from the photo were independently confirmed against
+  /// the catalogue record (year range, mint mark, denomination legend).
+  final int corroboratingChecks;
+
   const RecognitionConfidence({
     required this.level,
     required this.overallScore,
@@ -326,6 +340,7 @@ class RecognitionConfidence {
     this.ocrScore = 0.0,
     this.metadataScore = 0.0,
     required this.explanation,
+    this.corroboratingChecks = 0,
   });
 
   /// Derives qualitative confidence tier from weighted score.
@@ -379,15 +394,19 @@ class RecognitionConfidence {
   String get honestExplanation {
     switch (level) {
       case ConfidenceLevel.high:
-        return 'High Confidence: The available evidence strongly supports this identification with verified die characteristics.';
+        return 'Strong match: several details read from your photos agree with the catalogue record. This identifies the coin type only; it does not authenticate the coin.';
       case ConfidenceLevel.medium:
-        return 'Medium Confidence: The identification is likely, but competing varieties or faint mint marks remain possible.';
+        return 'Probable match: some details agree with the catalogue record, but the variety or mint still needs confirmation.';
       case ConfidenceLevel.low:
-        return 'Low Confidence: We could not reliably distinguish the variety. A sharper photo of the reverse and mint mark will help.';
+        return 'Possible match only: little or none of what was read from the photo could be cross-checked against the catalogue.';
       case ConfidenceLevel.indeterminate:
-        return 'Uncertain: Available visual details are insufficient to identify a specific catalogue variety.';
+        return 'Uncertain: the photo does not contain enough readable detail to identify a specific coin type.';
     }
   }
+
+  /// The server's explanation when present, otherwise the plain-language fallback.
+  String get displayExplanation =>
+      explanation.trim().isNotEmpty ? explanation : honestExplanation;
 
   Map<String, dynamic> toJson() => {
     'level': level.name,
@@ -396,6 +415,7 @@ class RecognitionConfidence {
     'ocrScore': ocrScore,
     'metadataScore': metadataScore,
     'explanation': explanation,
+    'corroboratingChecks': corroboratingChecks,
   };
 
   factory RecognitionConfidence.fromJson(Map<String, dynamic> json) =>
@@ -409,6 +429,8 @@ class RecognitionConfidence {
         ocrScore: (json['ocrScore'] as num?)?.toDouble() ?? 0.0,
         metadataScore: (json['metadataScore'] as num?)?.toDouble() ?? 0.0,
         explanation: json['explanation'] as String? ?? '',
+        corroboratingChecks:
+            (json['corroboratingChecks'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -436,20 +458,16 @@ class RecognitionCandidate {
     return '$yearStr${identity.country} ${identity.denomination}';
   }
 
-  /// Whether the composition contains precious metals (Gold, Silver, Platinum)
-  bool get hasPreciousMetal {
-    final comp = identity.composition?.toLowerCase() ?? '';
-    return comp.contains('silver') || comp.contains('gold') || comp.contains('platinum');
-  }
+  /// Explicitly stated precious-metal content of the composition, if any.
+  /// Keyword matches ("Nordic gold", "nickel silver", plated) do not count.
+  PreciousMetalContent? get preciousMetal =>
+      PreciousMetalContent.parse(identity.composition);
 
-  /// Name of detected precious metal alloy if present
-  String? get preciousMetalType {
-    final comp = identity.composition?.toLowerCase() ?? '';
-    if (comp.contains('gold')) return 'Gold';
-    if (comp.contains('silver')) return 'Silver';
-    if (comp.contains('platinum')) return 'Platinum';
-    return null;
-  }
+  /// Whether the composition explicitly states gold, silver or platinum content.
+  bool get hasPreciousMetal => preciousMetal != null;
+
+  /// Name of the explicitly stated precious metal, if any.
+  String? get preciousMetalType => preciousMetal?.displayName;
 
   /// Flag indicating potential collectible/rarity interest (scarce mint mark, precious metal, or vintage)
   bool get isWorthCloserLook {
@@ -579,6 +597,13 @@ class RecognitionResult {
   String? get queryId =>
       processingMetadata['query_id'] as String? ??
       processingMetadata['queryId'] as String?;
+
+  /// Why the service declined the scan, when it did
+  /// (e.g. `guest_daily_limit_reached`, `daily_quota_exceeded`).
+  String? get errorCode => processingMetadata['error_code'] as String?;
+
+  /// The signed-out daily allowance is used up: signing in continues scanning.
+  bool get guestLimitReached => errorCode == 'guest_daily_limit_reached';
 
   const RecognitionResult({
     required this.status,

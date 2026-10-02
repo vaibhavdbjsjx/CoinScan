@@ -114,7 +114,8 @@ void main() {
       expect(collectible.id, equals(item1.id));
       expect(collectible.name, equals(item1.coinName));
       expect(collectible.retailPrice, equals(2400.0));
-      expect(collectible.rarity, equals(RarityLevel.rare));
+      // Rarity is never inferred from metal content: no rarity data source exists.
+      expect(collectible.rarity, equals(RarityLevel.notAssessed));
 
       // Cleanup
       await service.deleteItem(item1.id);
@@ -160,7 +161,7 @@ void main() {
   });
 
   group('CoinReportData & PDF Generation Tests', () {
-    test('5. CoinReportData produces accurate text summary and CollectibleModel', () {
+    test('5. CoinReportData produces an accurate, non-certificate text summary', () {
       final report = CoinReportData(
         title: '1921 Morgan Silver Dollar',
         country: 'United States',
@@ -168,9 +169,8 @@ void main() {
         denomination: '1 Dollar',
         mintMark: 'D',
         composition: '90% Silver',
-        confidenceLevel: 'HIGH',
-        confidenceScore: 0.94,
-        valuationRange: '\$35 – \$65 USD',
+        identificationConfidence: 'High',
+        valuationRange: '35 – 65 USD',
         keyEvidence: ['Denver D mint mark identified', 'Liberty headband inscription readable'],
         conditionGrade: 'VF-30 Very Fine',
         generatedAt: DateTime.now(),
@@ -179,64 +179,41 @@ void main() {
       final shareText = report.toShareableText();
       expect(shareText, contains('1921 Morgan Silver Dollar'));
       expect(shareText, contains('Denver D mint mark identified'));
-      expect(shareText, contains('COINSCAN NUMISMATIC REPORT'));
-
-      final model = report.toCollectibleModel();
-      expect(model.name, equals('1921 Morgan Silver Dollar'));
-      expect(model.year, equals(1921));
-      expect(model.mintMark, equals('D'));
-      expect(model.estimatedGrade, equals('VF-30 Very Fine'));
+      expect(shareText, contains('Identification confidence: High'));
+      expect(shareText, contains('Authenticity: not assessed'));
+      expect(shareText, contains(kReportLimitationsStatement));
+      expect(shareText.toLowerCase(), isNot(contains('certificate of')));
     });
 
-    test('6. PdfGenerator builds valid PDF document without exceptions', () async {
-      final collectible = CollectibleModel(
-        id: 'test_pdf_1',
-        type: CollectibleType.coin,
-        name: '1794 Flowing Hair Dollar',
+    test('6. PdfGenerator writes a valid identification report file', () async {
+      final report = CoinReportData(
+        title: '1794 Flowing Hair Dollar',
         country: 'United States',
         year: 1794,
         denomination: '1 Dollar',
-        mintMark: '',
         composition: '89.2% Silver, 10.8% Copper',
         weightG: 26.96,
         diameterMm: 39.5,
-        thicknessMm: 2.0,
-        shape: 'Round',
-        edgeType: 'Lettered',
-        mint: 'Philadelphia',
-        designer: 'Robert Scot',
-        historicalPeriod: 'Early American',
-        rarity: RarityLevel.museumGrade,
-        authenticityConfidence: 0.98,
-        authenticityReasons: ['Original lettered edge', 'Struck design match'],
-        estimatedGrade: 'VF-25',
-        gradeExplanation: 'Moderate even wear on hair curls and eagle plumage.',
-        frontImageUrl: '',
-        backImageUrl: '',
-        historicalInfo: 'The first dollar coin issued by the United States federal government.',
-        category: 'Early Federal Coinage',
-        retailPrice: 1200000.0,
-        auctionPrice: 1200000.0,
-        dealerPrice: 1000000.0,
-        collectorPrice: 1200000.0,
-        minPrice: 900000.0,
-        maxPrice: 1500000.0,
-        priceTrendPercentage: 5.2,
-        investmentRating: 'A+',
+        identificationConfidence: 'Medium',
+        keyEvidence: ['Original lettered edge'],
+        generatedAt: DateTime(2026, 9, 30),
       );
+      final dir = await Directory.systemTemp.createTemp('coinscan_pdf_test');
 
-      final File pdfFile = await PdfGenerator.generateCollectibleReport(
-        collectible,
-        notes: 'Specimen verified by CoinScan.',
+      final File pdfFile = await PdfGenerator.generateIdentificationReport(
+        report,
+        notes: 'Bought at a coin show.',
         storageLocation: 'Bank Safety Deposit Box #4',
+        outputDirectory: dir,
       );
 
       expect(pdfFile.existsSync(), isTrue);
       expect(pdfFile.lengthSync(), greaterThan(1000));
       expect(pdfFile.path.endsWith('.pdf'), isTrue);
+      expect(String.fromCharCodes(pdfFile.readAsBytesSync().take(5)), '%PDF-');
 
       try {
-        pdfFile.deleteSync();
+        dir.deleteSync(recursive: true);
       } catch (_) {}
     });
 

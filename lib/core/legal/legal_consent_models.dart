@@ -97,10 +97,15 @@ class LegalConsentService {
   }
 
   /// Records fresh consent for a user locally and transmits it to backend.
+  ///
+  /// [accessToken] should be passed while a sign-in is still completing, so
+  /// the backend call is authenticated with the new session even before the
+  /// app-wide auth state has been updated.
   Future<LegalConsentRecord> recordConsent({
     required String userId,
     String termsVersion = LegalVersions.currentTermsVersion,
     String privacyVersion = LegalVersions.currentPrivacyVersion,
+    String? accessToken,
   }) async {
     final now = DateTime.now().toUtc();
     final record = LegalConsentRecord(
@@ -125,6 +130,9 @@ class LegalConsentService {
             'privacy_version': privacyVersion,
             'accepted_at': now.millisecondsSinceEpoch / 1000.0,
           },
+          headers: accessToken != null
+              ? {'Authorization': 'Bearer $accessToken'}
+              : null,
         );
       } catch (e) {
         debugPrint('Warning: Could not sync legal consent to backend: $e');
@@ -138,13 +146,23 @@ class LegalConsentService {
   }
 
   /// Syncs legal consent record with backend GET /v1/account/legal/consent.
-  Future<LegalConsentRecord?> syncConsentWithBackend(String userId) async {
+  Future<LegalConsentRecord?> syncConsentWithBackend(
+    String userId, {
+    String? accessToken,
+  }) async {
     if (userId.isEmpty || userId == 'guest_user') return null;
 
     try {
-      final res = await _apiClient.get('/v1/account/legal/consent');
+      final res = await _apiClient.get(
+        '/v1/account/legal/consent',
+        headers: accessToken != null
+            ? {'Authorization': 'Bearer $accessToken'}
+            : null,
+      );
       if (res is Map<String, dynamic>) {
         final termsVer = res['terms_version']?.toString() ?? '';
+        // "not_accepted" responses carry empty versions; nothing to store.
+        if (termsVer.isEmpty) return null;
         final privVer = res['privacy_version']?.toString() ?? '';
         final acceptedAt = res['accepted_at'] != null
             ? DateTime.fromMillisecondsSinceEpoch(

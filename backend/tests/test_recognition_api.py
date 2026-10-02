@@ -89,9 +89,12 @@ def test_recognition_api_staging_rejects_missing_credentials():
 
     original_env = settings.app_env
     original_key = settings.gemini_api_key
+    original_guest_secret = settings.guest_quota_hmac_secret
     try:
         settings.app_env = "staging"
         settings.gemini_api_key = None
+        # Guests on staging need the guest-quota key to reach the provider check.
+        settings.guest_quota_hmac_secret = "staging-test-secret"
 
         front_bytes = create_sample_coin_image(500, 500, "1882")
         files = {"front_image": ("front.jpg", front_bytes, "image/jpeg")}
@@ -102,3 +105,4 @@ def test_recognition_api_staging_rejects_missing_credentials():
     finally:
         settings.app_env = original_env
         settings.gemini_api_key = original_key
+        settings.guest_quota_hmac_secret = original_guest_secret

@@ -6,6 +6,7 @@ import 'package:uuid/uuid.dart';
 
 import '../config/app_config.dart';
 import '../network/api_client.dart';
+import '../valuation/precious_metal.dart';
 import 'models.dart';
 
 /// Represents a verified, user-owned coin item saved in their Collection Vault.
@@ -80,10 +81,10 @@ class VaultCoinItem {
   String? get mint => mintMark;
   DateTime get addedAt => dateAdded;
 
-  bool get hasPreciousMetal {
-    final comp = composition?.toLowerCase() ?? '';
-    return comp.contains('silver') || comp.contains('gold') || comp.contains('platinum');
-  }
+  /// Explicitly stated precious-metal content ("Nordic gold" / plated do not count).
+  PreciousMetalContent? get preciousMetal => PreciousMetalContent.parse(composition);
+
+  bool get hasPreciousMetal => preciousMetal != null;
 
   bool get isWorthCloserLook {
     if (hasPreciousMetal) return true;
@@ -161,6 +162,10 @@ class VaultCoinItem {
     );
   }
 
+  /// Display model for legacy widgets. Only data actually recorded for this coin
+  /// is carried over; unknown fields stay empty (or zero for numbers) so the UI
+  /// shows them as unavailable. Nothing is inferred: no shape, edge, mint name,
+  /// grade, rarity, history or "authentic" wording is invented.
   CollectibleModel toCollectibleModel() {
     return CollectibleModel(
       id: id,
@@ -170,26 +175,24 @@ class VaultCoinItem {
       year: year ?? 0,
       denomination: denomination,
       mintMark: mintMark ?? '',
-      composition: composition ?? 'Standard Issue',
+      composition: composition ?? '',
       weightG: weightG ?? 0.0,
       diameterMm: diameterMm ?? 0.0,
       thicknessMm: 0.0,
-      shape: 'Round',
-      edgeType: 'Reeded',
-      mint: mintMark != null && mintMark!.isNotEmpty ? 'Mint: $mintMark' : 'Standard Strike',
+      shape: '',
+      edgeType: '',
+      mint: mintMark ?? '',
       designer: '',
-      historicalPeriod: year != null ? (year! < 1900 ? 'Historic Pre-1900' : 'Modern Circulating') : 'Historic',
-      rarity: hasPreciousMetal ? RarityLevel.rare : RarityLevel.uncommon,
-      authenticityConfidence: confidenceScore ?? 0.88,
-      authenticityReasons: keyEvidence.isNotEmpty
-          ? keyEvidence
-          : ['Verified numismatic design, date and alloy match.'],
-      estimatedGrade: conditionEstimate ?? grade ?? 'Circulated',
-      gradeExplanation: 'AI condition estimate derived from surface wear and struck rim details.',
+      historicalPeriod: '',
+      rarity: RarityLevel.notAssessed,
+      identificationConfidence: confidenceScore,
+      evidenceSummary: keyEvidence,
+      estimatedGrade: conditionEstimate ?? grade ?? '',
+      gradeExplanation: '',
       frontImageUrl: frontImagePath ?? '',
       backImageUrl: reverseImagePath ?? '',
-      historicalInfo: notes ?? 'Authentic coin recorded in your personal CoinScan collection vault.',
-      category: hasPreciousMetal ? 'Precious Metal' : 'Circulating Issue',
+      historicalInfo: notes ?? '',
+      category: hasPreciousMetal ? 'Precious metal' : 'Coin',
       retailPrice: currentEstimatedValue ?? initialValuationSnapshot ?? purchasePrice ?? 0.0,
       auctionPrice: currentEstimatedValue ?? initialValuationSnapshot ?? purchasePrice ?? 0.0,
       dealerPrice: currentEstimatedValue ?? initialValuationSnapshot ?? purchasePrice ?? 0.0,
@@ -411,6 +414,21 @@ class CollectionStorageService {
     _isLoaded = false;
   }
 
+  /// Deletes the signed-out (guest) vault file, if any. Account vault files are
+  /// untouched. Called on every sign-in and sign-out so guest data can never be
+  /// shown to, or merged into, an account.
+  Future<void> clearGuestData() async {
+    if (kIsWeb) return;
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/collection_vault.json');
+      if (await file.exists()) await file.delete();
+    } catch (e) {
+      debugPrint('Could not clear guest vault data: $e');
+    }
+    if (_currentUserId == null) resetForUserSwitch();
+  }
+
   String get _fileName {
     final uid = _currentUserId;
     if (uid != null && uid.isNotEmpty) {
@@ -550,11 +568,9 @@ class CollectionStorageService {
       if (item.year != null) {
         years.add(item.year!);
       }
-      if (item.hasPreciousMetal) {
-        final comp = item.composition!.toLowerCase();
-        if (comp.contains('silver')) silver++;
-        if (comp.contains('gold')) gold++;
-      }
+      final metal = item.preciousMetal?.metal;
+      if (metal == PreciousMetal.silver) silver++;
+      if (metal == PreciousMetal.gold) gold++;
       if (item.isWorthCloserLook) {
         closerLook++;
       }

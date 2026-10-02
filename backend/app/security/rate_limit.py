@@ -9,6 +9,8 @@ from typing import Dict, List, Optional
 from collections import defaultdict
 from fastapi import Request, HTTPException, status
 
+from backend.app.config import settings
+
 
 class SubscriptionTier(str, Enum):
     ANONYMOUS = "anonymous"
@@ -26,6 +28,17 @@ class InMemoryRateLimiter:
         self.window = 60.0  # seconds
         self._ip_history: Dict[str, List[float]] = defaultdict(list)
         self._user_history: Dict[str, List[float]] = defaultdict(list)
+        self._last_sweep = 0.0
+
+    def _sweep(self, now: float) -> None:
+        """Forgets callers with no request inside the window (once per window), so
+        memory does not grow with every address or user ever seen."""
+        if now - self._last_sweep < self.window:
+            return
+        self._last_sweep = now
+        for history in (self._ip_history, self._user_history):
+            for key in [k for k, stamps in history.items() if not stamps or now - stamps[-1] >= self.window]:
+                del history[key]
 
     def check_rate_limit(
         self,
@@ -35,6 +48,7 @@ class InMemoryRateLimiter:
         api_key: Optional[str] = None,
     ):
         now = time.time()
+        self._sweep(now)
 
         # 1. IP Throttling (Protection against DDoS and automated scrapers)
         ip_timestamps = self._ip_history[client_ip]
@@ -70,4 +84,5 @@ class InMemoryRateLimiter:
             self._user_history[identifier].append(now)
 
 
-rate_limiter = InMemoryRateLimiter(default_rpm=60)
+# RATE_LIMIT_PER_MINUTE: scans per minute per client address (signed-out and Free).
+rate_limiter = InMemoryRateLimiter(default_rpm=max(1, settings.rate_limit_per_minute))

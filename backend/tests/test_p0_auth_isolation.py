@@ -1,9 +1,11 @@
 """
 P0 regression tests: authentication and per-user data isolation.
 
-- Development bearer shortcuts (usr_*/dev_*/jwt_token_*) and the mock vision
-  provider are only available in local development, never on staging or on a
-  hosted platform (Cloud Run sets K_SERVICE, Render sets RENDER).
+- Development bearer shortcuts (usr_*/dev_*/jwt_token_*), the mock vision
+  provider and the offline catalogue fixture exist only when APP_ENV is
+  development or test. APP_ENV alone decides: it defaults to production, and
+  hosting-platform variables (Cloud Run's K_SERVICE, Render's RENDER, Railway,
+  Fly.io) have no effect either way.
 - A user cannot read or modify another user's collection, scan history,
   quota, profile, consent or entitlement by manipulating IDs.
 """
@@ -18,7 +20,9 @@ from PIL import Image
 from backend.app.api import recognition as recognition_module
 from backend.app.api.account import account_store
 from backend.app.api.webhooks import webhook_state
-from backend.app.config import settings
+from fastapi import HTTPException
+
+from backend.app.config import Settings, settings
 from backend.app.main import app
 from backend.app.security.jwt_auth import JwtAuthVerifier
 from backend.app.security.rate_limit import SubscriptionTier
@@ -43,8 +47,6 @@ def _jpeg_bytes(size: int = 400) -> bytes:
 # ─── Development shortcuts are local-only ────────────────────────────────────
 
 def test_dev_tokens_work_in_local_development(monkeypatch):
-    monkeypatch.delenv("K_SERVICE", raising=False)
-    monkeypatch.delenv("RENDER", raising=False)
     monkeypatch.setattr(settings, "app_env", "development")
     user = JwtAuthVerifier().verify_token("Bearer usr_local_dev")
     assert user is not None and user.user_id == "usr_local_dev"
@@ -52,43 +54,83 @@ def test_dev_tokens_work_in_local_development(monkeypatch):
 
 @pytest.mark.parametrize("app_env", ["staging", "production"])
 def test_dev_tokens_rejected_outside_development(monkeypatch, app_env):
+    # Staging is hardened like production: an unverifiable token is a 401, not
+    # a silent downgrade to guest.
     monkeypatch.setattr(settings, "app_env", app_env)
     monkeypatch.setattr(settings, "supabase_jwt_secret", "a-real-secret-that-is-long-enough-123456")
     verifier = JwtAuthVerifier()
-    if app_env == "production":
-        with pytest.raises(Exception):
-            verifier.verify_token("Bearer usr_attacker")
-    else:
-        assert verifier.verify_token("Bearer usr_attacker") is None
+    with pytest.raises(HTTPException) as exc:
+        verifier.verify_token("Bearer usr_attacker")
+    assert exc.value.status_code == 401
 
 
-@pytest.mark.parametrize("platform_var", ["K_SERVICE", "RENDER"])
-def test_dev_tokens_rejected_on_hosted_platform_even_if_app_env_is_development(monkeypatch, platform_var):
-    """A deployment that forgets APP_ENV (default 'development') must not accept dev tokens."""
-    monkeypatch.setattr(settings, "app_env", "development")
-    monkeypatch.setenv(platform_var, "coinscan-backend")
-    assert settings.is_local_development is False
+PLATFORM_VARIABLES = {
+    "K_SERVICE": "coinscan-backend",           # Cloud Run
+    "RENDER": "true",                          # Render
+    "RAILWAY_ENVIRONMENT": "production",       # Railway
+    "FLY_APP_NAME": "coinscan-api",            # Fly.io
+}
 
-    assert JwtAuthVerifier().verify_token("Bearer usr_attacker") is None
+
+def _default_app_env() -> str:
+    """The APP_ENV a deployment gets when it does not set one."""
+    return Settings(_env_file=None).app_env
+
+
+def test_app_env_defaults_to_production_when_unset(monkeypatch):
+    monkeypatch.delenv("APP_ENV", raising=False)
+    assert _default_app_env() == "production"
+    for name, value in PLATFORM_VARIABLES.items():
+        monkeypatch.setenv(name, value)
+    assert _default_app_env() == "production"
+
+
+@pytest.mark.parametrize("platform_var", sorted(PLATFORM_VARIABLES))
+def test_dev_tokens_rejected_when_app_env_is_unset_on_any_platform(monkeypatch, platform_var):
+    """A deployment that forgets APP_ENV is hardened, whatever platform it runs on."""
+    monkeypatch.delenv("APP_ENV", raising=False)
+    monkeypatch.setenv(platform_var, PLATFORM_VARIABLES[platform_var])
+    monkeypatch.setattr(settings, "app_env", _default_app_env())
+    monkeypatch.setattr(settings, "supabase_jwt_secret", "a-real-secret-that-is-long-enough-123456")
+    assert settings.dev_features_enabled is False
+
+    with pytest.raises(HTTPException) as exc:
+        JwtAuthVerifier().verify_token("Bearer usr_attacker")
+    assert exc.value.status_code == 401
     resp = client.get("/v1/account/me", headers=_bearer("usr_attacker"))
     assert resp.status_code == 401
 
 
-def test_mock_vision_provider_unavailable_on_hosted_platform(monkeypatch):
-    monkeypatch.setattr(settings, "app_env", "development")
-    monkeypatch.setenv("K_SERVICE", "coinscan-backend")
+@pytest.mark.parametrize("app_env", ["development", "staging", "production"])
+def test_platform_variables_never_change_the_security_mode(monkeypatch, app_env):
+    for name, value in PLATFORM_VARIABLES.items():
+        monkeypatch.setenv(name, value)
+    monkeypatch.setattr(settings, "app_env", app_env)
+    assert settings.dev_features_enabled is (app_env == "development")
+    assert settings.is_hardened is (app_env != "development")
+
+
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+def test_mock_vision_provider_unavailable_when_hardened(monkeypatch, app_env):
+    monkeypatch.setattr(settings, "app_env", app_env)
     monkeypatch.setattr(settings, "gemini_api_key", None)
     monkeypatch.setattr(settings, "openai_api_key", None)
+    with pytest.raises(HTTPException) as exc:
+        recognition_module.get_vision_provider()
+    assert exc.value.status_code == 503
 
-    resp = client.post("/v1/recognition", files={"front_image": ("f.jpg", _jpeg_bytes(), "image/jpeg")})
-    assert resp.status_code == 503
+    # Staging end-to-end (production additionally needs a database to serve guests).
+    if app_env == "staging":
+        monkeypatch.setattr(settings, "guest_quota_hmac_secret", "staging-test-secret-0123456789abcdef")
+        resp = client.post("/v1/recognition", files={"front_image": ("f.jpg", _jpeg_bytes(), "image/jpeg")})
+        assert resp.status_code == 503
 
 
-def test_offline_catalogue_fixture_is_ignored_on_hosted_platform(monkeypatch):
-    monkeypatch.setattr(settings, "app_env", "development")
+@pytest.mark.parametrize("app_env", ["staging", "production"])
+def test_offline_catalogue_fixture_is_ignored_when_hardened(monkeypatch, app_env):
+    monkeypatch.setattr(settings, "app_env", app_env)
     monkeypatch.setattr(settings, "numista_offline_fixture", True)
-    monkeypatch.setenv("RENDER", "true")
-    assert (settings.numista_offline_fixture and settings.is_local_development) is False
+    assert (settings.numista_offline_fixture and settings.dev_features_enabled) is False
 
 
 # ─── Per-user isolation (ID manipulation) ────────────────────────────────────

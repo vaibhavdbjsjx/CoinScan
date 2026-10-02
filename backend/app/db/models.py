@@ -287,6 +287,21 @@ class SecurityEvent(Base):
     user = relationship("User")
 
 
+class GuestScanUsage(Base):
+    """Daily guest scan counts keyed by an HMAC of a network/install identifier.
+
+    Guests are never users: nothing here references public.users, and raw IPs or
+    install IDs are never stored (see migrations/20260930_guest_scan_usage.sql).
+    """
+    __tablename__ = "guest_scan_usage"
+
+    key_hash = Column(CHAR(64), primary_key=True)
+    scan_date = Column(Date, primary_key=True)
+    key_kind = Column(String(16), nullable=False)
+    scan_count = Column(Integer, nullable=False, default=0)
+    updated_at = Column(DateTime(timezone=True), nullable=False, default=func.now(), onupdate=func.now())
+
+
 class UserLegalConsent(Base):
     __tablename__ = "user_legal_consents"
 

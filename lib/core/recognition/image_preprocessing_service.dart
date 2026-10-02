@@ -123,14 +123,19 @@ class ImagePreprocessingService {
       img.encodeJpg(decoded, quality: 88),
     );
 
-    // 5. Persist to temporary cache file
-    final tempDir = overrideTempDir ?? await _resolveTempDirectory();
-    final fileName = 'coinscan_norm_${side.name}_${DateTime.now().millisecondsSinceEpoch}.jpg';
-    final targetFile = File('${tempDir.path}/$fileName');
-    await targetFile.writeAsBytes(normalizedJpg, flush: true);
+    // 5. Persist to a temporary cache file (mobile/desktop). Browsers have no
+    // file system: there the normalized bytes are kept in memory only.
+    String path = file.path;
+    if (!kIsWeb) {
+      final tempDir = overrideTempDir ?? await _resolveTempDirectory();
+      final fileName = 'coinscan_norm_${side.name}_${DateTime.now().millisecondsSinceEpoch}.jpg';
+      final targetFile = File('${tempDir.path}/$fileName');
+      await targetFile.writeAsBytes(normalizedJpg, flush: true);
+      path = targetFile.path;
+    }
 
     final capturedImage = CapturedCoinImage(
-      path: targetFile.path,
+      path: path,
       source: source,
       side: side,
       capturedAt: DateTime.now(),
@@ -138,6 +143,7 @@ class ImagePreprocessingService {
       height: decoded.height,
       fileSizeBytes: normalizedJpg.length,
       mimeType: 'image/jpeg',
+      bytes: normalizedJpg,
     );
 
     return PreprocessedCoinImage(

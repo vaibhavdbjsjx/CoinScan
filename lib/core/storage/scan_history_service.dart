@@ -141,6 +141,21 @@ class ScanHistoryService {
     _cache = null;
   }
 
+  /// Deletes the signed-out (guest) scan history file, if any. Account history
+  /// files are untouched. Guest history is local-only and is never migrated
+  /// into an account.
+  Future<void> clearGuestData() async {
+    if (kIsWeb) return;
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/scan_history.json');
+      if (await file.exists()) await file.delete();
+    } catch (e) {
+      debugPrint('Could not clear guest scan history: $e');
+    }
+    if (_currentUserId == null) resetForUserSwitch();
+  }
+
   String get _fileName {
     final uid = _currentUserId;
     if (uid != null && uid.isNotEmpty) {

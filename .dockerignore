@@ -1,0 +1,14 @@
+# Build context for backend/Dockerfile (built from the repository root by
+# Railway and Cloud Build). Only the API source and its runtime requirements
+# are needed; everything else (Flutter app, builds, local secrets) stays out.
+*
+!backend/requirements.txt
+!backend/app/
+
+# Never send local secrets, caches or bytecode, even inside backend/app.
+**/.env
+**/.env.*
+**/__pycache__
+**/*.py[cod]
+**/.pytest_cache
+**/.DS_Store

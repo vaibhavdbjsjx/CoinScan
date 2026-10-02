@@ -12,6 +12,7 @@ Guarantees:
 - Tiers are server-authoritative.
 """
 
+import hashlib
 import json
 import logging
 from typing import Optional
@@ -19,10 +20,14 @@ from fastapi import Request, HTTPException, status, Depends
 
 from backend.app.config import settings
 from backend.app.security.rate_limit import SubscriptionTier
-from backend.app.security.jwt_auth import AuthenticatedUser, jwt_verifier
+from backend.app.security.jwt_auth import AuthenticatedUser, jwt_verifier, signing_keys
 from backend.app.security.api_key_service import api_key_service
 
 logger = logging.getLogger("coinscan.auth")
+
+
+# Placeholder id for signed-out callers. It is never written to any user-keyed table.
+GUEST_USER_ID = "guest"
 
 
 class UnifiedAuthenticator:
@@ -72,17 +77,21 @@ class UnifiedAuthenticator:
 
             # Check legacy/dev static key map. These shared static secrets map to a paid
             # tier without a user account; if one were shipped inside a mobile build it
-            # could be extracted, so they are never honoured in production.
+            # could be extracted, so they work only when APP_ENV is development or test.
             if api_key in self._dev_key_map:
-                if settings.app_env == "production":
-                    logger.warning("Rejected legacy static API key in production (API_SECRET/API_KEYS_JSON).")
+                if not settings.dev_features_enabled:
+                    logger.warning(
+                        f"Rejected static API key in {settings.app_env} (API_SECRET/API_KEYS_JSON are development-only)."
+                    )
                     raise HTTPException(
                         status_code=status.HTTP_401_UNAUTHORIZED,
                         detail="Invalid or revoked API key.",
                     )
                 tier = self._dev_key_map[api_key]
+                # Label derived from a hash: no part of the secret appears in the id or logs.
+                label = hashlib.sha256(api_key.encode("utf-8")).hexdigest()[:12]
                 return AuthenticatedUser(
-                    user_id=f"dev_key_{api_key[:6]}",
+                    user_id=f"static_key_{label}",
                     tier=tier,
                     is_authenticated=True,
                     auth_method="api_key",
@@ -94,10 +103,10 @@ class UnifiedAuthenticator:
                 detail="Invalid or revoked API key.",
             )
 
-        # 3. Fallback to Anonymous / Unauthenticated Client (IP-based identity)
-        client_ip = request.client.host if request.client else "127.0.0.1"
+        # 3. Signed-out guest. Guests have no identity: no address or device data is
+        # attached here, and guest usage is counted separately (see guest_quota.py).
         return AuthenticatedUser(
-            user_id=f"anon_ip_{client_ip}",
+            user_id=GUEST_USER_ID,
             tier=SubscriptionTier.ANONYMOUS,
             is_authenticated=False,
             auth_method="anonymous",
@@ -109,6 +118,11 @@ _unified_authenticator = UnifiedAuthenticator()
 
 async def get_current_user(request: Request) -> AuthenticatedUser:
     """FastAPI dependency resolving authenticated user context."""
+    auth_header = request.headers.get("Authorization")
+    if auth_header and auth_header.lower().startswith("bearer "):
+        # Fetch the token's Supabase signing key if it is not cached yet, so the
+        # synchronous verification below never waits on the network.
+        await signing_keys.ensure_for_token(auth_header[7:].strip())
     user = _unified_authenticator.resolve_caller(request)
     if user.is_authenticated and user.auth_method == "jwt":
         from backend.app.api.webhooks import webhook_state

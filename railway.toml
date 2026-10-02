@@ -1,0 +1,29 @@
+# Railway configuration-as-code for the CoinScan API (FastAPI).
+# Values here override the Railway dashboard for this service.
+# Secrets and other variables are set in Railway, never here
+# (see backend/.env.example for the list).
+
+[build]
+builder = "DOCKERFILE"
+dockerfilePath = "backend/Dockerfile"
+# Redeploy the API only when the API changes (Flutter/web commits do not).
+watchPatterns = [
+    "backend/app/**",
+    "backend/requirements.txt",
+    "backend/Dockerfile",
+    ".dockerignore",
+    "railway.toml",
+]
+
+[deploy]
+# A deployment goes live only once it reports ready: database reachable,
+# Supabase token verification usable and every required provider setting
+# present. Railway calls this only while deploying.
+healthcheckPath = "/health/ready"
+healthcheckTimeout = 120
+restartPolicyType = "ON_FAILURE"
+restartPolicyMaxRetries = 5
+# Keep the previous deployment serving briefly, then give in-flight scans
+# time to finish after SIGTERM (uvicorn's graceful shutdown is 25 s).
+overlapSeconds = "15"
+drainingSeconds = "30"

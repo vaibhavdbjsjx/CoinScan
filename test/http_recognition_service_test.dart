@@ -224,14 +224,22 @@ void main() {
       await tester.tap(find.text('Skip'));
       await tester.pumpAndSettle();
 
-      // Verify UI shows Identified badge, Coin Title, Numista N# badge, Confidence %
+      // Verify UI shows Identified badge, Coin Title, Numista N# badge and the
+      // identification confidence level. The uncalibrated score is deliberately
+      // not shown as a percentage, and authenticity is reported as not assessed.
       expect(find.text('Identified'), findsOneWidget);
       expect(find.text('1882 United States 1 Dollar'), findsOneWidget);
       expect(find.textContaining('Numista N# 1492'), findsAtLeastNWidgets(1));
-      expect(find.textContaining('94%'), findsAtLeastNWidgets(1));
-      await tester.drag(find.byType(ListView), const Offset(0, -250));
+      expect(find.text('High identification confidence'), findsOneWidget);
+      expect(find.textContaining('94%'), findsNothing);
+      expect(find.textContaining('it cannot authenticate coins'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('What supports this identification'),
+        250,
+        scrollable: find.byType(Scrollable).first,
+      );
       await tester.pumpAndSettle();
-      expect(find.textContaining('Why we think this is your coin'), findsOneWidget);
+      expect(find.text('What supports this identification'), findsOneWidget);
     });
 
     testWidgets('5. Renders poor quality diagnostics and recapture checklist', (tester) async {

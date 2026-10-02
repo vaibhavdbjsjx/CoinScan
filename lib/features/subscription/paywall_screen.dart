@@ -2,10 +2,12 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_animate/flutter_animate.dart';
 
+import '../../core/auth/auth_service.dart';
 import '../../core/subscriptions/revenuecat_subscription_service.dart';
 import '../../core/theme/colors.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
+import '../onboarding/account_prompt.dart';
 import '../profile/legal_screen.dart';
 
 /// Premium paywall screen showing tier comparison and purchase CTAs.
@@ -15,11 +17,13 @@ import '../profile/legal_screen.dart';
 class PaywallScreen extends StatefulWidget {
   final SubscriptionService subscriptionService;
   final VoidCallback? onDismiss;
+  final AuthService? authService;
 
   const PaywallScreen({
     super.key,
     required this.subscriptionService,
     this.onDismiss,
+    this.authService,
   });
 
   @override
@@ -48,7 +52,27 @@ class _PaywallScreenState extends State<PaywallScreen> {
     }
   }
 
+  AuthService get _auth => widget.authService ?? AuthService.instance;
+
+  bool get _signedIn => _auth.currentState.isAuthenticated;
+
+  /// Subscriptions belong to an account: guests sign in first, then choose a
+  /// plan again themselves.
+  Future<void> _promptSignIn() async {
+    await promptForAccount(
+      context,
+      title: 'Sign in to subscribe',
+      message:
+          'Subscriptions belong to your CoinScan account, so they work on your '
+          'other devices and can be restored. Sign in or create a free account, '
+          'then choose your plan.',
+      authService: widget.authService,
+    );
+    if (mounted) setState(() {});
+  }
+
   Future<void> _handlePurchase(SubscriptionProduct product) async {
+    if (!_signedIn) return _promptSignIn();
     setState(() => _isPurchasing = true);
     try {
       await widget.subscriptionService.purchase(product.productId);
@@ -58,6 +82,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
     } on PurchaseException catch (e) {
       if (mounted) {
         setState(() => _isPurchasing = false);
+        if (e.requiresAccount) {
+          await _promptSignIn();
+          return;
+        }
         // Silently dismiss on user cancellation — don't show an error
         if (!e.isCancellation) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -88,6 +116,7 @@ class _PaywallScreenState extends State<PaywallScreen> {
   }
 
   Future<void> _handleRestore() async {
+    if (!_signedIn) return _promptSignIn();
     setState(() => _isPurchasing = true);
     try {
       final state = await widget.subscriptionService.restorePurchases();
@@ -123,6 +152,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
     } on PurchaseException catch (e) {
       if (mounted) {
         setState(() => _isPurchasing = false);
+        if (e.requiresAccount) {
+          await _promptSignIn();
+          return;
+        }
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
             backgroundColor: AppColors.crimson,
@@ -167,6 +200,10 @@ class _PaywallScreenState extends State<PaywallScreen> {
                           const SizedBox(height: AppSpacing.xxl),
                           _buildPeriodToggle(),
                           const SizedBox(height: AppSpacing.xl),
+                          if (!_signedIn) ...[
+                            _buildSignInNote(),
+                            const SizedBox(height: AppSpacing.lg),
+                          ],
                           _buildTierCards(),
                           const SizedBox(height: AppSpacing.xxl),
                           _buildFeatureComparison(),
@@ -265,12 +302,16 @@ class _PaywallScreenState extends State<PaywallScreen> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          _periodTab('Monthly', !_showYearly, () {
-            setState(() => _showYearly = false);
-          }),
-          _periodTab('Yearly — Save 33%', _showYearly, () {
-            setState(() => _showYearly = true);
-          }),
+          Flexible(
+            child: _periodTab('Monthly', !_showYearly, () {
+              setState(() => _showYearly = false);
+            }),
+          ),
+          Flexible(
+            child: _periodTab('Yearly — Save 33%', _showYearly, () {
+              setState(() => _showYearly = true);
+            }),
+          ),
         ],
       ),
     );
@@ -295,6 +336,33 @@ class _PaywallScreenState extends State<PaywallScreen> {
             color: isActive ? AppColors.onGold : AppColors.textOnInkMuted,
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSignInNote() {
+    return Container(
+      key: const ValueKey('paywall_sign_in_note'),
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: AppColors.inkElevated,
+        borderRadius: AppRadius.allLg,
+        border: Border.all(color: AppColors.borderOnInk),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.person_outline_rounded, color: AppColors.gold),
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Text(
+              'Subscriptions belong to your CoinScan account. Sign in or create '
+              'a free account to subscribe.',
+              style: AppTypography.captionSmall.copyWith(
+                color: AppColors.textOnInk,
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

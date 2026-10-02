@@ -136,6 +136,9 @@ class RecognitionConfidence(BaseModel):
     ocrScore: float = Field(default=0.0, ge=0.0, le=1.0, serialization_alias="ocrScore")
     metadataScore: float = Field(default=0.0, ge=0.0, le=1.0, serialization_alias="metadataScore")
     explanation: str
+    # Number of details read from the photo that were independently confirmed against
+    # the catalogue record (year range, mint mark in issues, denomination legend).
+    corroboratingChecks: int = Field(default=0, ge=0, serialization_alias="corroboratingChecks")
 
 
 class RecognitionCandidate(BaseModel):

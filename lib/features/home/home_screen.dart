@@ -920,7 +920,7 @@ class _FeaturedCard extends StatelessWidget {
       button: true,
       label:
           '${item.name}. ${item.country}, ${Fmt.year(item.year)}. '
-          '${item.rarity.displayName}. ${Fmt.moneyCompact(item.retailPrice)}',
+          '${item.retailPrice > 0 ? Fmt.moneyCompact(item.retailPrice) : 'No saved estimate'}',
       child: ExcludeSemantics(
         child: SizedBox(
           width: 210,
@@ -954,11 +954,13 @@ class _FeaturedCard extends StatelessWidget {
                           seed: item.id.hashCode,
                         ),
                       ),
-                      Positioned(
-                        top: AppSpacing.sm,
-                        left: AppSpacing.sm,
-                        child: AppChip(label: item.rarity.displayName),
-                      ),
+                      // Rarity is only shown when it has actually been assessed.
+                      if (item.rarity != RarityLevel.notAssessed)
+                        Positioned(
+                          top: AppSpacing.sm,
+                          left: AppSpacing.sm,
+                          child: AppChip(label: item.rarity.displayName),
+                        ),
                     ],
                   ),
                 ),
@@ -988,7 +990,9 @@ class _FeaturedCard extends StatelessWidget {
                         children: [
                           Expanded(
                             child: Text(
-                              Fmt.moneyCompact(item.retailPrice),
+                              item.retailPrice > 0
+                                  ? Fmt.moneyCompact(item.retailPrice)
+                                  : 'No saved estimate',
                               style: AppTypography.numericSmall.copyWith(
                                 fontSize: 15,
                                 color: AppColors.goldInk,

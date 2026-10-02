@@ -21,8 +21,8 @@ class MockApi {
       designer: 'Augustus Saint-Gaudens',
       historicalPeriod: 'Early 20th Century (1907-1933)',
       rarity: RarityLevel.museumGrade,
-      authenticityConfidence: 0.99,
-      authenticityReasons: [
+      identificationConfidence: 0.99,
+      evidenceSummary: [
         'Edge lettering displays correct spacing and font style matching Philadelphia dies.',
         'High relief detail sharp and consistent with master hub strikes.',
         'Surface finish exhibits correct satin texture from original minting processes.',
@@ -63,8 +63,8 @@ class MockApi {
       designer: 'Unknown Athenian Die Engraver',
       historicalPeriod: 'Classical Greece (c. 454-404 BC)',
       rarity: RarityLevel.rare,
-      authenticityConfidence: 0.96,
-      authenticityReasons: [
+      identificationConfidence: 0.96,
+      evidenceSummary: [
         'Obverse displays standard high-crested helmet with three olive leaves.',
         'Incuse square reverse displays standard owl, olive sprig, and crescent moon.',
         'Weight falls correctly within Attica standard distribution of 17.15g - 17.25g.',
@@ -105,8 +105,8 @@ class MockApi {
       designer: 'Victor David Brenner',
       historicalPeriod: 'Mid 20th Century',
       rarity: RarityLevel.veryRare,
-      authenticityConfidence: 0.94,
-      authenticityReasons: [
+      identificationConfidence: 0.94,
+      evidenceSummary: [
         'Distinct, dramatic double image visible on LIBERTY and IN GOD WE TRUST.',
         'Clear doubling on the date 1955, with the second image shifted slightly clockwise.',
         'Obverse die markers verified (specific die polish lines near Lincoln shoulder).',
@@ -146,8 +146,8 @@ class MockApi {
       designer: 'BEP Master Engravers',
       historicalPeriod: 'Early 20th Century (Federal Reserve Era)',
       rarity: RarityLevel.extremelyRare,
-      authenticityConfidence: 0.97,
-      authenticityReasons: [
+      identificationConfidence: 0.97,
+      evidenceSummary: [
         'Engravings display high fidelity with razor-sharp microprinting details.',
         'Blue seal and serial numbers show authentic ink bleed typical of 1918 flat-plate printing.',
         'Paper stock displays correct red and blue security threads embedded natively.',
@@ -192,8 +192,8 @@ class MockApi {
       designer: 'George T. Morgan',
       historicalPeriod: 'Late 19th Century (Gilded Age)',
       rarity: RarityLevel.uncommon,
-      authenticityConfidence: 0.98,
-      authenticityReasons: [
+      identificationConfidence: 0.98,
+      evidenceSummary: [
         'CC mint mark displays perfect alignment and size matching 1882 dies.',
         'Denticles around the rim are fully sharp and complete.',
         'Specific silver alloy density matches original specifications.',

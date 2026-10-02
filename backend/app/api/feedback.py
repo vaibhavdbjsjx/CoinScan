@@ -15,6 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, status, Request
 
 from backend.app.config import settings
 from backend.app.security.auth import get_current_user, AuthenticatedUser
+from backend.app.security.client_ip import get_client_ip
 from backend.app.db.session import is_db_configured, get_session_factory
 from backend.app.db.models import Feedback as DBFeedback, User
 
@@ -86,7 +87,9 @@ class FeedbackStore:
     ) -> FeedbackRecord:
         self._check_persistence_mode()
         now = time.time()
-        identifier = user.user_id if user.is_authenticated else f"ip_{client_ip}"
+        # Guests are rate limited by network address in memory only; the address
+        # is never persisted or logged.
+        identifier = user.user_id if user.is_authenticated else f"net:{client_ip}"
 
         # Rate limiting: Maximum 5 feedback submissions per 10 minutes
         history = self._submission_history.setdefault(identifier, [])
@@ -149,7 +152,7 @@ class FeedbackStore:
                         app_version=submission.app_version or "1.0.0",
                         platform=submission.platform or "ios",
                         request_id=submission.request_id,
-                        client_ip=client_ip,
+                        client_ip=None,  # never persist raw client addresses
                     )
                     session.add(db_entry)
                     await session.commit()
@@ -175,7 +178,7 @@ async def submit_feedback(
     """
     Submits a user feedback report or bug inquiry with device diagnostic context.
     """
-    client_ip = request.client.host if request.client else "127.0.0.1"
+    client_ip = get_client_ip(request)
     record = await feedback_store.submit_feedback_async(submission, current_user, client_ip)
 
     return {

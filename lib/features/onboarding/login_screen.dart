@@ -1,4 +1,3 @@
-import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:go_router/go_router.dart';
@@ -9,7 +8,7 @@ import '../../core/theme/theme.dart';
 import '../../core/theme/tokens.dart';
 import '../../core/theme/typography.dart';
 import '../../core/widgets/premium_widgets.dart';
-import '../profile/legal_screen.dart';
+import 'account_flow_screens.dart';
 
 /// Account entry.
 ///
@@ -19,7 +18,12 @@ import '../profile/legal_screen.dart';
 /// column on tablets and web, and every field carries autofill hints so the
 /// platform password manager can do the typing.
 class LoginScreen extends StatefulWidget {
-  const LoginScreen({super.key});
+  /// Opened above another screen (see `promptForAccount`): once signed in,
+  /// close and return there instead of resetting to the home screen.
+  final bool popOnSuccess;
+  final AuthService? authService;
+
+  const LoginScreen({super.key, this.popOnSuccess = false, this.authService});
 
   @override
   State<LoginScreen> createState() => _LoginScreenState();
@@ -32,15 +36,41 @@ class _LoginScreenState extends State<LoginScreen> {
   final _formKey = GlobalKey<FormState>();
 
   bool _obscurePassword = true;
-  bool _useBiometrics = false;
   bool _termsAccepted = false;
+  String? _error;
   bool _isSubmitting = false;
 
   /// Which provider is mid-flight, so only that button shows a spinner.
   String? _pendingProvider;
+  bool _finished = false;
+
+  AuthService get _auth => widget.authService ?? AuthService.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    // Browser-based sign-in (Google / Apple) completes when the app is reopened
+    // via the redirect link: close as soon as that session arrives.
+    if (widget.popOnSuccess) _auth.addListener(_onAuthChanged);
+  }
+
+  void _onAuthChanged() {
+    if (_auth.currentState.isAuthenticated) _finish();
+  }
+
+  void _finish() {
+    if (_finished || !mounted) return;
+    _finished = true;
+    if (widget.popOnSuccess) {
+      closeAccountRoute(context, true);
+    } else {
+      context.go('/');
+    }
+  }
 
   @override
   void dispose() {
+    if (widget.popOnSuccess) _auth.removeListener(_onAuthChanged);
     _emailController.dispose();
     _passwordController.dispose();
     _passwordFocus.dispose();
@@ -69,26 +99,29 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    setState(() => _isSubmitting = true);
+    setState(() {
+      _isSubmitting = true;
+      _error = null;
+    });
     try {
-      await AuthService.instance.signInWithEmail(
+      await _auth.signInWithEmail(
         email: _emailController.text.trim(),
         password: _passwordController.text,
         termsAccepted: true,
       );
     } catch (e) {
       if (!mounted) return;
-      setState(() => _isSubmitting = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Login failed: $e')),
-      );
+      setState(() {
+        _isSubmitting = false;
+        _error = authErrorMessage(e);
+      });
       return;
     }
 
     if (!mounted) return;
     setState(() => _isSubmitting = false);
     HapticFeedback.lightImpact();
-    context.go('/');
+    _finish();
   }
 
   Future<void> _handleOAuthLogin(String provider) async {
@@ -106,99 +139,30 @@ class _LoginScreenState extends State<LoginScreen> {
       return;
     }
 
-    setState(() => _pendingProvider = provider);
+    setState(() {
+      _pendingProvider = provider;
+      _error = null;
+    });
+    AuthState state;
     try {
-      if (provider == 'Apple') {
-        await AuthService.instance.signInWithApple(termsAccepted: true);
-      } else {
-        await AuthService.instance.signInWithGoogle(termsAccepted: true);
-      }
+      state = provider == 'Apple'
+          ? await _auth.signInWithApple(termsAccepted: true)
+          : await _auth.signInWithGoogle(termsAccepted: true);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _pendingProvider = null);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('$provider sign-in failed: $e')),
-      );
+      setState(() {
+        _pendingProvider = null;
+        _error = authErrorMessage(e);
+      });
       return;
     }
 
     if (!mounted) return;
     setState(() => _pendingProvider = null);
-    context.go('/');
-  }
-
-  void _showForgotPasswordDialog() {
-    final resetEmailController = TextEditingController(text: _emailController.text);
-    final formKey = GlobalKey<FormState>();
-
-    showDialog(
-      context: context,
-      builder: (ctx) => AlertDialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
-        title: Text('Reset Password', style: AppTypography.sectionHeader.copyWith(fontSize: 20)),
-        content: Form(
-          key: formKey,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Enter your account email to receive instructions on resetting your vault password.',
-                style: AppTypography.bodyMuted,
-              ),
-              const SizedBox(height: AppSpacing.md),
-              TextFormField(
-                controller: resetEmailController,
-                keyboardType: TextInputType.emailAddress,
-                style: AppTypography.bodyMedium,
-                autofocus: true,
-                decoration: const InputDecoration(
-                  hintText: 'name@domain.com',
-                  prefixIcon: Icon(Icons.alternate_email_rounded, size: 19),
-                ),
-                validator: (val) {
-                  final v = val?.trim() ?? '';
-                  if (v.isEmpty) return 'Please enter your email';
-                  if (!RegExp(r'^[^@\s]+@[^@\s]+\.[^@\s]+$').hasMatch(v)) {
-                    return 'Please enter a valid email address';
-                  }
-                  return null;
-                },
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(),
-            child: const Text('Cancel', style: TextStyle(color: AppColors.textSecondary)),
-          ),
-          GoldButton(
-            text: 'Send Reset Link',
-            size: GoldButtonSize.compact,
-            expand: false,
-            onPressed: () {
-              if (formKey.currentState?.validate() ?? false) {
-                final email = resetEmailController.text.trim();
-                Navigator.of(ctx).pop();
-                HapticFeedback.mediumImpact();
-                ScaffoldMessenger.of(context).showSnackBar(
-                  SnackBar(
-                    backgroundColor: AppColors.emerald,
-                    behavior: SnackBarBehavior.floating,
-                    content: Text(
-                      'Password reset link sent to $email. Please check your inbox.',
-                      style: AppTypography.bodyMedium.copyWith(color: Colors.white),
-                    ),
-                  ),
-                );
-              }
-            },
-          ),
-        ],
-      ),
-    );
+    // Browser-based sign-in finishes when the app is reopened via the redirect
+    // link; the router then moves on automatically. Only navigate now if the
+    // session is already complete.
+    if (state.isAuthenticated) _finish();
   }
 
   @override
@@ -249,6 +213,7 @@ class _LoginScreenState extends State<LoginScreen> {
           const _FieldLabel('Email address'),
           const SizedBox(height: AppSpacing.sm),
           TextFormField(
+            key: const ValueKey('login_email'),
             controller: _emailController,
             enabled: !_busy,
             style: AppTypography.bodyLarge,
@@ -276,7 +241,12 @@ class _LoginScreenState extends State<LoginScreen> {
             children: [
               const Expanded(child: _FieldLabel('Password')),
               TextButton(
-                onPressed: _busy ? null : _showForgotPasswordDialog,
+                onPressed: _busy
+                    ? null
+                    : () => context.push(
+                          '/forgot-password',
+                          extra: _emailController.text.trim(),
+                        ),
                 style: TextButton.styleFrom(
                   padding: const EdgeInsets.symmetric(
                     horizontal: AppSpacing.sm,
@@ -290,6 +260,7 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           const SizedBox(height: AppSpacing.xs),
           TextFormField(
+            key: const ValueKey('login_password'),
             controller: _passwordController,
             focusNode: _passwordFocus,
             enabled: !_busy,
@@ -325,104 +296,32 @@ class _LoginScreenState extends State<LoginScreen> {
           ),
           const SizedBox(height: AppSpacing.base),
 
-          _BiometricToggle(
-            value: _useBiometrics,
-            enabled: !_busy,
-            onChanged: (v) => setState(() => _useBiometrics = v),
+          TermsAgreementCheckbox(
+            value: _termsAccepted,
+            onChanged: _busy ? null : (v) => setState(() => _termsAccepted = v),
           ),
           const SizedBox(height: AppSpacing.lg),
 
-          _buildTermsConsentBox(),
-          const SizedBox(height: AppSpacing.lg),
+          if (_error != null) ...[
+            Container(
+              key: const ValueKey('login_error'),
+              padding: const EdgeInsets.all(AppSpacing.md),
+              decoration: BoxDecoration(
+                color: AppColors.crimson.withValues(alpha: 0.08),
+                borderRadius: AppRadius.allMd,
+              ),
+              child: Text(_error!, style: AppTypography.bodyMedium),
+            ),
+            const SizedBox(height: AppSpacing.base),
+          ],
 
           GoldButton(
+            key: const ValueKey('login_submit'),
             text: 'Sign in',
             isLoading: _isSubmitting,
             onPressed: (_pendingProvider == null && _termsAccepted)
                 ? _handleEmailLogin
                 : null,
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildTermsConsentBox() {
-    return Container(
-      padding: const EdgeInsets.symmetric(
-        vertical: AppSpacing.xs,
-        horizontal: AppSpacing.xs,
-      ),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          SizedBox(
-            height: 24,
-            width: 24,
-            child: Checkbox(
-              value: _termsAccepted,
-              activeColor: AppColors.goldDark,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(4),
-              ),
-              onChanged: _busy
-                  ? null
-                  : (val) {
-                      setState(() => _termsAccepted = val ?? false);
-                    },
-            ),
-          ),
-          const SizedBox(width: AppSpacing.sm),
-          Expanded(
-            child: Text.rich(
-              TextSpan(
-                text: 'I agree to the CoinScan ',
-                style: AppTypography.caption.copyWith(
-                  color: AppColors.textPrimary,
-                  height: 1.4,
-                ),
-                children: [
-                  TextSpan(
-                    text: 'Terms & Conditions',
-                    style: AppTypography.caption.copyWith(
-                      color: AppColors.goldDark,
-                      fontWeight: FontWeight.w600,
-                      decoration: TextDecoration.underline,
-                    ),
-                    recognizer: TapGestureRecognizer()
-                      ..onTap = () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const LegalScreen(
-                              document: CoinScanLegalDocs.termsOfService,
-                            ),
-                          ),
-                        );
-                      },
-                  ),
-                  const TextSpan(text: ' and acknowledge the '),
-                  TextSpan(
-                    text: 'Privacy Policy',
-                    style: AppTypography.caption.copyWith(
-                      color: AppColors.goldDark,
-                      fontWeight: FontWeight.w600,
-                      decoration: TextDecoration.underline,
-                    ),
-                    recognizer: TapGestureRecognizer()
-                      ..onTap = () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => const LegalScreen(
-                              document: CoinScanLegalDocs.privacyPolicy,
-                            ),
-                          ),
-                        );
-                      },
-                  ),
-                  const TextSpan(text: '.'),
-                ],
-              ),
-            ),
           ),
         ],
       ),
@@ -474,16 +373,39 @@ class _LoginScreenState extends State<LoginScreen> {
     );
   }
 
+  void _openSignUp() {
+    if (!widget.popOnSuccess) {
+      context.push('/signup');
+      return;
+    }
+    Navigator.of(context).push(
+      MaterialPageRoute<bool>(
+        builder: (_) => SignUpScreen(popOnSuccess: true, authService: widget.authService),
+      ),
+    );
+  }
+
   Widget _buildGuestEntry() {
     return Column(
       children: [
         TextButton(
-          onPressed: _busy ? null : () => context.go('/'),
-          child: const Text('Explore as a guest'),
+          key: const ValueKey('create_account_link'),
+          onPressed: _busy ? null : _openSignUp,
+          child: const Text('New to CoinScan? Create an account'),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        TextButton(
+          key: const ValueKey('continue_as_guest'),
+          onPressed: _busy
+              ? null
+              : () => widget.popOnSuccess
+                    ? closeAccountRoute(context, false)
+                    : context.go('/'),
+          child: Text(widget.popOnSuccess ? 'Not now' : 'Explore as a guest'),
         ),
         const SizedBox(height: AppSpacing.xs),
         Text(
-          'Guest mode provides limited browsing without account sync.',
+          'As a guest you can scan coins; saving to your vault needs an account.',
           style: AppTypography.captionSmall.copyWith(
             color: AppColors.textSecondary,
           ),
@@ -552,62 +474,3 @@ class _FieldLabel extends StatelessWidget {
   }
 }
 
-class _BiometricToggle extends StatelessWidget {
-  final bool value;
-  final bool enabled;
-  final ValueChanged<bool> onChanged;
-
-  const _BiometricToggle({
-    required this.value,
-    required this.enabled,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return AnimatedContainer(
-      duration: AppDuration.fast,
-      padding: const EdgeInsets.fromLTRB(
-        AppSpacing.base,
-        AppSpacing.md,
-        AppSpacing.sm,
-        AppSpacing.md,
-      ),
-      decoration: BoxDecoration(
-        color: value
-            ? AppColors.gold.withValues(alpha: 0.07)
-            : AppColors.surface,
-        borderRadius: AppRadius.allMd,
-        border: Border.all(
-          color: value
-              ? AppColors.gold.withValues(alpha: 0.4)
-              : AppColors.border,
-        ),
-      ),
-      child: Row(
-        children: [
-          Icon(
-            Icons.face_retouching_natural_rounded,
-            color: value ? AppColors.goldInk : AppColors.textSecondary,
-            size: 20,
-          ),
-          const SizedBox(width: AppSpacing.md),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text('Unlock with Face ID', style: AppTypography.titleSmall),
-                const SizedBox(height: 1),
-                Text(
-                  'Skip the password next time',
-                  style: AppTypography.captionSmall,
-                ),
-              ],
-            ),
-          ),
-          Switch.adaptive(value: value, onChanged: enabled ? onChanged : null),
-        ],
-      ),
-    );
-  }
-}

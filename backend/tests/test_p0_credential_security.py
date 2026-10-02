@@ -20,6 +20,7 @@ from backend.app.config import settings
 from backend.app.main import app
 from backend.app.security.auth import UnifiedAuthenticator
 from backend.app.security.quota_service import quota_engine
+from backend.app.security.guest_quota import guest_allowance
 from backend.app.services.recognition import vision_provider as vp
 from backend.app.services.recognition.vision_provider import (
     GeminiVisionProvider,
@@ -134,16 +135,17 @@ def test_recognition_provider_failure_does_not_leak_key_or_charge_quota(monkeypa
     body = resp.json()
     assert body["status"] == "error"
     assert body["candidates"] == []
-    # Failed scans must not consume quota nor leave an in-flight reservation behind
-    anon_id = "anon_ip_testclient"
-    assert quota_engine.get_current_usage(anon_id) == 0
-    assert all(v == 0 for k, v in quota_engine._in_flight.items() if k[0] == anon_id)
+    # Failed scans must not consume the guest allowance (the reserved slot is given back)
+    assert all(v == 0 for v in guest_allowance.store._local.values())
 
 
 def test_missing_provider_credentials_in_staging_releases_quota(monkeypatch):
     monkeypatch.setattr(settings, "app_env", "staging")
     monkeypatch.setattr(settings, "gemini_api_key", None)
     monkeypatch.setattr(settings, "openai_api_key", None)
+    # Guests on staging need the guest-quota key, so the request reaches the
+    # vision-provider check this test is about.
+    monkeypatch.setattr(settings, "guest_quota_hmac_secret", "staging-test-secret")
     quota_engine.reset_usage_for_test()
 
     client = TestClient(app)
@@ -152,8 +154,9 @@ def test_missing_provider_credentials_in_staging_releases_quota(monkeypatch):
         files={"front_image": ("front.jpg", _jpeg_bytes(), "image/jpeg")},
     )
     assert resp.status_code == 503
-    anon_id = "anon_ip_testclient"
-    assert all(v == 0 for k, v in quota_engine._in_flight.items() if k[0] == anon_id)
+    assert "not configured on this staging service" in str(resp.json())
+    # The reserved guest slot was given back
+    assert all(v == 0 for v in guest_allowance.store._local.values())
 
 
 class _Req:

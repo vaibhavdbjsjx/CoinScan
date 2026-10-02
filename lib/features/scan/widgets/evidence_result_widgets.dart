@@ -8,8 +8,12 @@ import '../../../core/theme/tokens.dart';
 import '../../../core/theme/typography.dart';
 
 /// ---------------------------------------------------------------------------
-/// 1. "WHY WE THINK THIS IS YOUR COIN" EVIDENCE SECTION
+/// 1. EVIDENCE: WHAT SUPPORTS THIS IDENTIFICATION
 /// ---------------------------------------------------------------------------
+/// Renders the evidence returned by the recognition service exactly as sent,
+/// including where each signal came from. Nothing is inferred or "verified"
+/// on the device. Catalogue specifications are listed separately and are
+/// clearly labelled as catalogue data, not measurements of the photographed coin.
 class WhyWeThinkThisIsYourCoinWidget extends StatelessWidget {
   final RecognitionCandidate candidate;
   final bool hasReverseImage;
@@ -20,170 +24,191 @@ class WhyWeThinkThisIsYourCoinWidget extends StatelessWidget {
     this.hasReverseImage = true,
   });
 
+  static const title = 'What supports this identification';
+
   @override
   Widget build(BuildContext context) {
     final id = candidate.identity;
-    final evidenceCards = <_EvidenceItem>[];
-
-    // 1. Date
-    if (id.year != null) {
-      evidenceCards.add(
-        _EvidenceItem(
-          icon: Icons.calendar_today_rounded,
-          label: 'Date Detected',
-          value: '${id.year}',
-          detail: 'Year inscribed on obverse matches catalogue record.',
-        ),
-      );
-    }
-
-    // 2. Country & Design
-    if (id.country.isNotEmpty && id.country != 'Unknown') {
-      evidenceCards.add(
-        _EvidenceItem(
-          icon: Icons.account_balance_rounded,
-          label: 'Issuing Country & Motif',
-          value: id.country,
-          detail: 'Portrait, heraldry, and national design elements align with official issue.',
-        ),
-      );
-    }
-
-    // 3. Denomination
-    if (id.denomination.isNotEmpty && id.denomination != 'Unknown') {
-      evidenceCards.add(
-        _EvidenceItem(
-          icon: Icons.monetization_on_outlined,
-          label: 'Denomination',
-          value: id.denomination,
-          detail: 'Denomination text/numerals confirmed against issuing authority.',
-        ),
-      );
-    }
-
-    // 4. Mint Mark
-    if (id.mint != null && id.mint!.isNotEmpty) {
-      evidenceCards.add(
-        _EvidenceItem(
-          icon: Icons.label_important_outline_rounded,
-          label: 'Mint / Facility Mark',
-          value: 'Mint mark: ${id.mint}',
-          detail: 'Identified branch mint insignia corresponds to recorded strike batches.',
-        ),
-      );
-    } else {
-      evidenceCards.add(
-        const _EvidenceItem(
-          icon: Icons.label_off_outlined,
-          label: 'Mint Mark Status',
-          value: 'No mint mark detected',
-          detail: 'Consistent with main facility issues (e.g. Philadelphia / standard royal mint).',
-        ),
-      );
-    }
-
-    // 5. Composition
-    if (id.composition != null && id.composition!.isNotEmpty) {
-      evidenceCards.add(
-        _EvidenceItem(
-          icon: Icons.toll_rounded,
-          label: 'Alloy Composition',
-          value: id.composition!,
-          detail: candidate.hasPreciousMetal
-              ? 'Contains precious ${candidate.preciousMetalType} metal alloy.'
-              : 'Base metal composition consistent with circulating specification.',
-        ),
-      );
-    }
-
-    // 6. Diameter
-    if (id.diameterMm != null) {
-      evidenceCards.add(
-        _EvidenceItem(
-          icon: Icons.straighten_rounded,
-          label: 'Standard Diameter',
-          value: '${id.diameterMm} mm',
-          detail: 'Conforms to official minting planchet diameter.',
-        ),
-      );
-    }
-
-    // 7. Weight
-    if (id.weightG != null) {
-      evidenceCards.add(
-        _EvidenceItem(
-          icon: Icons.scale_rounded,
-          label: 'Standard Struck Weight',
-          value: '${id.weightG} g',
-          detail: 'Official legal weight standard for this issue.',
-        ),
-      );
-    }
-
-    // 8. Obverse / Reverse Die Concordance
-    evidenceCards.add(
-      _EvidenceItem(
-        icon: Icons.sync_alt_rounded,
-        label: 'Die Alignment Concordance',
-        value: hasReverseImage ? 'Dual-die confirmed' : 'Single-die visual match',
-        detail: hasReverseImage
-            ? 'Front portrait and reverse device belong to matching die pairings.'
-            : 'Front design matched. Scan reverse side for full dual-die verification.',
-      ),
-    );
-
-    // 9. Catalogue Reference
-    if (id.numistaId != null || id.kmNumber != null) {
-      final cat = [
-        if (id.numistaId != null) 'Numista N# ${id.numistaId}',
-        if (id.kmNumber != null) id.kmNumber!,
-      ].join(' • ');
-      evidenceCards.add(
-        _EvidenceItem(
-          icon: Icons.menu_book_rounded,
-          label: 'Numismatic Catalogue Reference',
-          value: cat,
-          detail: 'Verified against international standard numismatic records.',
-        ),
-      );
-    }
+    final specs = <(String, String)>[
+      if (id.composition != null && id.composition!.trim().isNotEmpty)
+        ('Composition', id.composition!),
+      if (id.weightG != null) ('Weight', '${id.weightG} g'),
+      if (id.diameterMm != null) ('Diameter', '${id.diameterMm} mm'),
+      if (id.thicknessMm != null) ('Thickness', '${id.thicknessMm} mm'),
+      if (id.edgeType != null && id.edgeType!.trim().isNotEmpty)
+        ('Edge', id.edgeType!),
+      if (id.kmNumber != null && id.kmNumber!.trim().isNotEmpty)
+        ('Catalogue number', id.kmNumber!),
+      if (id.numistaId != null) ('Numista', 'N# ${id.numistaId}'),
+    ];
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            const Icon(Icons.verified_outlined, color: AppColors.gold, size: 20),
-            const SizedBox(width: AppSpacing.sm),
-            Expanded(
-              child: Text(
-                'Why we think this is your coin',
-                style: AppTypography.titleSmall.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-          ],
-        ),
+        const _SectionHeader(icon: Icons.fact_check_outlined, title: title),
         const SizedBox(height: AppSpacing.xs),
         Text(
-          'Evidence verified directly from your photograph against numismatic catalogue records.',
+          'Each item shows where it came from. Details read by AI from your '
+          'photo can be wrong; catalogue checks compare them with the matched record.',
           style: AppTypography.captionSmall.copyWith(
             color: AppColors.textOnInkMuted,
+            height: 1.35,
           ),
         ),
         const SizedBox(height: AppSpacing.md),
-        for (final item in evidenceCards) ...[
-          _buildEvidenceCard(item),
+        if (candidate.evidence.isEmpty)
+          const _InfoNote(text: 'No supporting evidence was returned for this result.')
+        else
+          for (final ev in candidate.evidence) ...[
+            _EvidenceTile(evidence: ev),
+            const SizedBox(height: AppSpacing.sm),
+          ],
+        if (specs.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          const _SectionHeader(
+            icon: Icons.menu_book_rounded,
+            title: 'Catalogue record',
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            'Standard specifications for the matched coin type. They were not '
+            'measured from your coin.',
+            style: AppTypography.captionSmall.copyWith(
+              color: AppColors.textOnInkMuted,
+            ),
+          ),
           const SizedBox(height: AppSpacing.sm),
+          Container(
+            padding: const EdgeInsets.symmetric(
+              horizontal: AppSpacing.md,
+              vertical: AppSpacing.sm,
+            ),
+            decoration: BoxDecoration(
+              color: AppColors.inkElevated,
+              borderRadius: AppRadius.allMd,
+              border: Border.all(color: Colors.white12),
+            ),
+            child: Column(
+              children: [
+                for (final (label, value) in specs)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 5),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            label,
+                            style: AppTypography.captionSmall.copyWith(
+                              color: AppColors.textOnInkMuted,
+                            ),
+                          ),
+                        ),
+                        Flexible(
+                          child: Text(
+                            value,
+                            textAlign: TextAlign.end,
+                            style: AppTypography.caption.copyWith(
+                              color: Colors.white,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+              ],
+            ),
+          ),
         ],
       ],
     );
   }
+}
 
-  Widget _buildEvidenceCard(_EvidenceItem item) {
+class _SectionHeader extends StatelessWidget {
+  final IconData icon;
+  final String title;
+
+  const _SectionHeader({required this.icon, required this.title});
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Icon(icon, color: AppColors.gold, size: 18),
+        const SizedBox(width: AppSpacing.sm),
+        Expanded(
+          child: Text(
+            title,
+            style: AppTypography.titleSmall.copyWith(
+              color: Colors.white,
+              fontWeight: FontWeight.bold,
+            ),
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _InfoNote extends StatelessWidget {
+  final String text;
+
+  const _InfoNote({required this.text});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(AppSpacing.md),
+      decoration: BoxDecoration(
+        color: Colors.white.withValues(alpha: 0.05),
+        borderRadius: AppRadius.allMd,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Icon(Icons.info_outline, color: Colors.white54, size: 16),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: AppTypography.captionSmall.copyWith(color: Colors.white70),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EvidenceTile extends StatelessWidget {
+  final RecognitionEvidence evidence;
+
+  const _EvidenceTile({required this.evidence});
+
+  (String, Color) get _strength => switch (evidence.strength) {
+    SignalStrength.strong => ('Strong', AppColors.emerald),
+    SignalStrength.moderate => ('Moderate', AppColors.gold),
+    SignalStrength.weak => ('Weak', Colors.white60),
+    SignalStrength.inconsistent => ('Conflicts', AppColors.crimson),
+  };
+
+  IconData get _icon => switch (evidence.type) {
+    RecognitionEvidenceType.year => Icons.calendar_today_rounded,
+    RecognitionEvidenceType.mintMark => Icons.label_important_outline_rounded,
+    RecognitionEvidenceType.denomination => Icons.monetization_on_outlined,
+    RecognitionEvidenceType.country => Icons.account_balance_rounded,
+    RecognitionEvidenceType.inscription => Icons.text_fields_rounded,
+    RecognitionEvidenceType.obverseReverseAgreement => Icons.flip_rounded,
+    RecognitionEvidenceType.composition => Icons.toll_rounded,
+    RecognitionEvidenceType.visualSimilarity => Icons.visibility_outlined,
+    _ => Icons.circle_outlined,
+  };
+
+  @override
+  Widget build(BuildContext context) {
+    final (strengthLabel, strengthColor) = _strength;
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
       decoration: BoxDecoration(
@@ -194,55 +219,53 @@ class WhyWeThinkThisIsYourCoinWidget extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(6),
-            decoration: BoxDecoration(
-              color: AppColors.gold.withValues(alpha: 0.12),
-              borderRadius: BorderRadius.circular(6),
-            ),
-            child: Icon(item.icon, color: AppColors.gold, size: 16),
-          ),
+          Icon(_icon, color: AppColors.gold, size: 18),
           const SizedBox(width: AppSpacing.md),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Flexible(
-                      flex: 2,
+                    Expanded(
                       child: Text(
-                        item.label,
-                        style: AppTypography.captionSmall.copyWith(
-                          color: AppColors.textOnInkMuted,
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                    const SizedBox(width: 8),
-                    Flexible(
-                      flex: 3,
-                      child: Text(
-                        item.value,
+                        evidence.label,
                         style: AppTypography.caption.copyWith(
                           color: Colors.white,
                           fontWeight: FontWeight.w700,
                         ),
-                        textAlign: TextAlign.end,
-                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    Text(
+                      strengthLabel,
+                      style: AppTypography.captionSmall.copyWith(
+                        color: strengthColor,
+                        fontWeight: FontWeight.w700,
                       ),
                     ),
                   ],
                 ),
-                const SizedBox(height: 3),
-                Text(
-                  item.detail,
-                  style: AppTypography.captionSmall.copyWith(
-                    color: Colors.white70,
-                    height: 1.3,
+                if (evidence.detail.isNotEmpty) ...[
+                  const SizedBox(height: 3),
+                  Text(
+                    evidence.detail,
+                    style: AppTypography.captionSmall.copyWith(
+                      color: Colors.white70,
+                      height: 1.3,
+                    ),
                   ),
-                ),
+                ],
+                if (evidence.source != null && evidence.source!.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    'Source: ${evidence.source}',
+                    style: AppTypography.captionSmall.copyWith(
+                      color: AppColors.textOnInkMuted,
+                      fontSize: 10.5,
+                    ),
+                  ),
+                ],
               ],
             ),
           ),
@@ -252,54 +275,48 @@ class WhyWeThinkThisIsYourCoinWidget extends StatelessWidget {
   }
 }
 
-class _EvidenceItem {
-  final IconData icon;
-  final String label;
-  final String value;
-  final String detail;
-
-  const _EvidenceItem({
-    required this.icon,
-    required this.label,
-    required this.value,
-    required this.detail,
-  });
-}
-
 /// ---------------------------------------------------------------------------
-/// 2. HONEST CONFIDENCE SYSTEM
+/// 2. IDENTIFICATION CONFIDENCE (separate from authenticity)
 /// ---------------------------------------------------------------------------
+/// Shows the corroboration-gated identification level and how many catalogue
+/// cross-checks passed. No percentage is shown: the underlying score is not
+/// calibrated against real-world accuracy, so a "94%" would imply a
+/// probability CoinScan cannot back up. Authenticity is always reported as not
+/// assessed, because photo recognition cannot authenticate a coin.
 class HonestConfidenceCard extends StatelessWidget {
   final RecognitionConfidence confidence;
 
   const HonestConfidenceCard({super.key, required this.confidence});
 
+  static const authenticityNote =
+      'Not assessed. CoinScan identifies coin types from photos; it cannot '
+      'authenticate coins or detect counterfeits. For authentication, consult a '
+      'professional grading service or a qualified numismatist.';
+
+  static String levelLabel(ConfidenceLevel level) => switch (level) {
+    ConfidenceLevel.high => 'High identification confidence',
+    ConfidenceLevel.medium => 'Medium identification confidence',
+    ConfidenceLevel.low => 'Low identification confidence',
+    ConfidenceLevel.indeterminate => 'Identification uncertain',
+  };
+
   @override
   Widget build(BuildContext context) {
-    final (badgeLabel, badgeColor, icon) = switch (confidence.level) {
-      ConfidenceLevel.high => (
-        'HIGH CONFIDENCE',
-        AppColors.emerald,
-        Icons.check_circle_rounded,
-      ),
-      ConfidenceLevel.medium => (
-        'MEDIUM CONFIDENCE',
-        AppColors.gold,
-        Icons.info_outline_rounded,
-      ),
-      ConfidenceLevel.low => (
-        'LOW CONFIDENCE',
-        AppColors.amber,
-        Icons.help_outline_rounded,
-      ),
+    final (badgeColor, icon) = switch (confidence.level) {
+      ConfidenceLevel.high => (AppColors.emerald, Icons.check_circle_rounded),
+      ConfidenceLevel.medium => (AppColors.gold, Icons.info_rounded),
+      ConfidenceLevel.low => (AppColors.amber, Icons.help_outline_rounded),
       ConfidenceLevel.indeterminate => (
-        'UNCERTAIN',
         Colors.white60,
         Icons.warning_amber_rounded,
       ),
     };
-
-    final pct = (confidence.overallScore * 100).toInt();
+    final checks = confidence.corroboratingChecks;
+    final checksText = checks == 0
+        ? 'No detail could be cross-checked against the catalogue record'
+        : checks == 1
+        ? '1 detail cross-checked against the catalogue record'
+        : '$checks details cross-checked against the catalogue record';
 
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -312,64 +329,81 @@ class HonestConfidenceCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Flexible(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                  decoration: BoxDecoration(
-                    color: badgeColor.withValues(alpha: 0.16),
-                    borderRadius: AppRadius.allPill,
-                    border: Border.all(color: badgeColor.withValues(alpha: 0.45)),
-                  ),
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(icon, size: 14, color: badgeColor),
-                      const SizedBox(width: 5),
-                      Flexible(
-                        child: Text(
-                          badgeLabel,
-                          style: AppTypography.captionSmall.copyWith(
-                            color: badgeColor,
-                            fontWeight: FontWeight.w700,
-                            letterSpacing: 0.5,
-                          ),
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
+              Icon(icon, size: 18, color: badgeColor),
               const SizedBox(width: 8),
-              Text(
-                '$pct% Evidence Match',
-                style: AppTypography.captionSmall.copyWith(
-                  color: Colors.white70,
-                  fontWeight: FontWeight.w600,
+              Expanded(
+                child: Text(
+                  levelLabel(confidence.level),
+                  style: AppTypography.titleSmall.copyWith(
+                    color: badgeColor,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
           ),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            confidence.honestExplanation,
+            confidence.displayExplanation,
             style: AppTypography.bodyMedium.copyWith(
               color: Colors.white,
               height: 1.35,
             ),
           ),
-          const SizedBox(height: AppSpacing.md),
-          const Divider(color: Colors.white12),
-          const SizedBox(height: AppSpacing.xs),
+          const SizedBox(height: AppSpacing.sm),
           Row(
             children: [
-              _buildBar('Visual Motif', confidence.visualScore, badgeColor),
-              const SizedBox(width: 8),
-              _buildBar('Inscriptions & OCR', confidence.ocrScore, badgeColor),
-              const SizedBox(width: 8),
-              _buildBar('Catalogue Concordance', confidence.metadataScore, badgeColor),
+              Icon(
+                checks > 0 ? Icons.rule_rounded : Icons.remove_circle_outline,
+                size: 14,
+                color: Colors.white60,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  checksText,
+                  style: AppTypography.captionSmall.copyWith(
+                    color: Colors.white70,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: AppSpacing.md),
+          const Divider(color: Colors.white12, height: 1),
+          const SizedBox(height: AppSpacing.sm),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Icon(
+                Icons.shield_outlined,
+                size: 14,
+                color: AppColors.textOnInkMuted,
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text.rich(
+                  TextSpan(
+                    children: [
+                      TextSpan(
+                        text: 'Authenticity: ',
+                        style: AppTypography.captionSmall.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                      TextSpan(
+                        text: authenticityNote,
+                        style: AppTypography.captionSmall.copyWith(
+                          color: AppColors.textOnInkMuted,
+                          height: 1.35,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
             ],
           ),
           if (confidence.level != ConfidenceLevel.high) ...[
@@ -379,21 +413,23 @@ class HonestConfidenceCard extends StatelessWidget {
               decoration: BoxDecoration(
                 color: Colors.white.withValues(alpha: 0.05),
                 borderRadius: AppRadius.allMd,
-                border: Border.all(color: Colors.white12),
               ),
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.lightbulb_outline_rounded, size: 14, color: AppColors.gold),
+                  const Icon(
+                    Icons.lightbulb_outline_rounded,
+                    size: 14,
+                    color: AppColors.gold,
+                  ),
                   const SizedBox(width: 8),
                   Expanded(
                     child: Text(
                       confidence.level == ConfidenceLevel.medium
-                          ? 'Tip: Capturing the reverse side or a steady close-up of the date & mint mark will resolve candidate ambiguity.'
-                          : 'Tip: Reposition the coin flat under diffused light to eliminate surface glare and reveal subtle die inscriptions.',
+                          ? 'Tip: photograph the reverse, or take a steady close-up of the date and mint mark, to narrow this down.'
+                          : 'Tip: lay the coin flat under soft, even light with no glare, fill the frame, and photograph both sides.',
                       style: AppTypography.captionSmall.copyWith(
                         color: Colors.white70,
-                        fontSize: 10.5,
                         height: 1.3,
                       ),
                     ),
@@ -402,49 +438,6 @@ class HonestConfidenceCard extends StatelessWidget {
               ),
             ),
           ],
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBar(String label, double score, Color color) {
-    final pct = (score * 100).toInt();
-    return Expanded(
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            label,
-            style: AppTypography.captionSmall.copyWith(
-              color: AppColors.textOnInkMuted,
-              fontSize: 10,
-            ),
-            overflow: TextOverflow.ellipsis,
-          ),
-          const SizedBox(height: 2),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(
-                '$pct%',
-                style: AppTypography.captionSmall.copyWith(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 11,
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 2),
-          ClipRRect(
-            borderRadius: BorderRadius.circular(2),
-            child: LinearProgressIndicator(
-              value: score.clamp(0.0, 1.0),
-              backgroundColor: Colors.white12,
-              valueColor: AlwaysStoppedAnimation(color),
-              minHeight: 3,
-            ),
-          ),
         ],
       ),
     );
@@ -501,19 +494,25 @@ class TransparentValuationCard extends StatelessWidget {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Row(
-                children: [
-                  const Icon(Icons.price_change_outlined, color: AppColors.gold, size: 20),
-                  const SizedBox(width: AppSpacing.sm),
-                  Text(
-                    'Transparent Valuation',
-                    style: AppTypography.titleSmall.copyWith(
-                      color: Colors.white,
-                      fontWeight: FontWeight.bold,
+              Expanded(
+                child: Row(
+                  children: [
+                    const Icon(Icons.price_change_outlined, color: AppColors.gold, size: 20),
+                    const SizedBox(width: AppSpacing.sm),
+                    Flexible(
+                      child: Text(
+                        'Value',
+                        style: AppTypography.titleSmall.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
+              const SizedBox(width: AppSpacing.sm),
               Container(
                 padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                 decoration: BoxDecoration(
@@ -699,11 +698,15 @@ class TransparentValuationCard extends StatelessWidget {
               ],
             ),
           ),
-          Text(
-            value,
-            style: AppTypography.bodyMedium.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w700,
+          const SizedBox(width: AppSpacing.sm),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: AppTypography.bodyMedium.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
             ),
           ),
         ],
@@ -804,42 +807,39 @@ class WorthACloserLookCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final reasons = <String>[];
     final id = candidate.identity;
-    final comp = id.composition?.toLowerCase() ?? '';
 
-    if (comp.contains('gold')) {
-      reasons.add('Contains gold precious metal alloy with substantial intrinsic bullion value.');
-    } else if (comp.contains('silver')) {
-      reasons.add('Contains historic silver alloy with melt valuation protection.');
-    } else if (comp.contains('platinum')) {
-      reasons.add('Rare platinum composition issue.');
+    // Only an explicitly stated catalogue fineness counts as precious metal.
+    final metal = candidate.preciousMetal;
+    if (metal != null) {
+      reasons.add(
+        'The catalogue lists ${metal.displayName.toLowerCase()} at '
+        '${(metal.fineness * 1000).toStringAsFixed(0)}/1000 fineness, so the coin has '
+        'bullion value in addition to any collector value.',
+      );
     }
 
-    if (id.mint != null && id.mint!.isNotEmpty) {
+    // Mint-mark notes only apply to United States issues, and the mark itself
+    // was read by AI from the photo, so it is presented as something to confirm.
+    final isUs = id.country.toLowerCase().contains('united states');
+    if (isUs && id.mint != null && id.mint!.isNotEmpty) {
       final m = id.mint!.toUpperCase();
-      if (m == 'CC' || m == 'CARSON CITY') {
-        reasons.add('Carson City ("CC") mint issues are historically scarce and avidly collected.');
-      } else if (m == 'S' || m == 'SAN FRANCISCO') {
-        reasons.add('San Francisco ("S") mint mark identified. Inspect strike sharpness.');
-      } else if (m == 'D' || m == 'DENVER' || m == 'DAHLONEGA') {
-        reasons.add('Branch mint strike ("D"). Verify date positioning.');
-      } else if (m == 'O' || m == 'NEW ORLEANS') {
-        reasons.add('Historic New Orleans ("O") Southern branch mint strike.');
-      } else if (m == 'W' || m == 'WEST POINT') {
-        reasons.add('West Point ("W") commemorative or special circulation issue.');
+      if (m == 'CC') {
+        reasons.add('A "CC" (Carson City) mint mark was read from the photo. Carson City issues are generally scarcer, so confirm the mark under magnification.');
+      } else if (m == 'O') {
+        reasons.add('An "O" (New Orleans) mint mark was read from the photo. Confirm it under magnification.');
       }
-    }
-
-    if (id.year != null && id.year! < 1950) {
-      reasons.add('Pre-1950 vintage specimen (${id.year}). Surviving population decreases significantly in higher preservation grades.');
     }
 
     final conf = candidate.confidence;
     if (conf != null && (conf.level == ConfidenceLevel.medium || conf.level == ConfidenceLevel.low)) {
-      reasons.add('Unresolved die characteristics: verify mint mark or reverse lettering under 10x magnification to confirm exact catalogue variety.');
+      reasons.add('The exact variety is not confirmed. Check the mint mark and reverse lettering under magnification.');
     }
 
-    if (valuation?.marketMid != null && valuation!.marketMid! > 100) {
-      reasons.add('Premium market estimate (\$${valuation!.marketMid!.toStringAsFixed(0)} ${valuation!.currencyCode}): may justify certified holder encapsulation if state of preservation is uncirculated.');
+    final market = valuation?.marketMid;
+    if (market != null && market > 100) {
+      reasons.add(
+        'The market estimate (${market.toStringAsFixed(0)} ${valuation!.currencyCode}) is high enough that condition matters; a professional opinion may be worthwhile.',
+      );
     }
 
     if (reasons.isEmpty) return const SizedBox.shrink();
@@ -913,15 +913,15 @@ class ShouldIGetThisGradedCard extends StatelessWidget {
         (candidate.identity.mint != null && candidate.identity.mint!.isNotEmpty);
 
     final title = isValuable
-        ? 'Possibly worth investigating'
-        : 'Probably not cost-effective';
+        ? 'Possibly worth a professional opinion'
+        : 'Often not cost-effective for common coins';
 
     final color = isValuable ? AppColors.emerald : Colors.white60;
     final icon = isValuable ? Icons.check_circle_outline : Icons.cancel_outlined;
 
     final explanation = isValuable
-        ? 'The coin\'s vintage, mint mark, or metal content suggests that professional evaluation could be worthwhile if visual condition is high.'
-        : 'Professional grading submission fees typically range from \$25 to \$60 per coin. For common-date circulated issues, fees often exceed market value.';
+        ? 'Its age, mint mark or metal content means professional grading could be worthwhile if the coin is in high condition. A photo alone cannot determine grade or authenticity.'
+        : 'Grading fees can exceed the value of common circulated coins. Check current fees with a grading service before submitting.';
 
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),
@@ -953,11 +953,13 @@ class ShouldIGetThisGradedCard extends StatelessWidget {
             children: [
               Icon(icon, color: color, size: 18),
               const SizedBox(width: 6),
-              Text(
-                title,
-                style: AppTypography.bodyMedium.copyWith(
-                  color: color,
-                  fontWeight: FontWeight.w700,
+              Flexible(
+                child: Text(
+                  title,
+                  style: AppTypography.bodyMedium.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w700,
+                  ),
                 ),
               ),
             ],
@@ -1239,13 +1241,16 @@ class _WrongIdentificationFeedbackWidgetState
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            'Was this identification correct?',
-            style: AppTypography.caption.copyWith(
-              color: Colors.white,
-              fontWeight: FontWeight.w600,
+          Expanded(
+            child: Text(
+              'Was this identification correct?',
+              style: AppTypography.caption.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w600,
+              ),
             ),
           ),
+          const SizedBox(width: 8),
           Row(
             children: [
               OutlinedButton.icon(

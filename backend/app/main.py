@@ -14,37 +14,57 @@ from backend.app.api import health, recognition, webhooks, feedback, account, co
 
 from contextlib import asynccontextmanager
 from backend.app.db.session import init_db, close_db
+from backend.app.runtime_checks import parse_allowed_origins, run_startup_checks
+from backend.app.security.jwt_auth import signing_keys
+from backend.app.security.request_limits import RequestSizeLimitMiddleware
 
-# Configure structured logging
+# Configure structured logging (LOG_LEVEL: debug | info | warning | error).
 logging.basicConfig(
-    level=logging.INFO,
+    level=getattr(logging, (settings.log_level or "info").strip().upper(), logging.INFO),
     format="%(asctime)s [%(levelname)s] [%(name)s] %(message)s",
 )
+# httpx logs every request URL at INFO. Some providers take their key as a query
+# parameter (metals-api ?access_key=), so request lines must never be logged.
+for _noisy_logger in ("httpx", "httpcore"):
+    logging.getLogger(_noisy_logger).setLevel(logging.WARNING)
 logger = logging.getLogger("coinscan.api")
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle manager for startup and shutdown of database pools and connections."""
+    # Staging/production refuse to start without required security settings.
+    run_startup_checks()
     await init_db()
+    if settings.resolved_jwks_url:
+        await signing_keys.refresh()
     yield
     await close_db()
 
+
+# Interactive API docs only for development and tests.
+_docs_enabled = settings.dev_features_enabled
 
 app = FastAPI(
     title="CoinScan Recognition & Valuation API",
     description="Production-ready multi-sided coin recognition, catalogue verification, and valuation engine.",
     version=settings.app_version,
-    docs_url="/docs",
-    redoc_url="/redoc",
+    docs_url="/docs" if _docs_enabled else None,
+    redoc_url="/redoc" if _docs_enabled else None,
+    openapi_url="/openapi.json" if _docs_enabled else None,
     lifespan=lifespan,
 )
 
-# Configure CORS for Flutter Web, iOS, Android, and desktop clients
-origins = [o.strip() for o in settings.allowed_origins.split(",") if o.strip()]
-if not origins or "*" in origins:
-    origins = ["*"]
+# Body size limits sit inside CORS so even a 413 carries CORS headers for web clients.
+app.add_middleware(
+    RequestSizeLimitMiddleware,
+    default_max_bytes=settings.max_request_kb * 1024,
+    path_limits={"/v1/recognition": settings.max_recognition_request_mb * 1024 * 1024},
+)
 
+# Configure CORS for the web app. Native mobile apps send no Origin header and
+# are unaffected. ALLOWED_ORIGINS lists exact origins (scheme://host[:port]).
+origins = parse_allowed_origins(settings.allowed_origins)
 is_wildcard = origins == ["*"]
 
 app.add_middleware(
@@ -92,7 +112,7 @@ async def root():
         "service": settings.app_name,
         "version": settings.app_version,
         "status": "online",
-        "docs": "/docs",
+        "docs": "/docs" if _docs_enabled else None,
         "health": "/health",
     }
 

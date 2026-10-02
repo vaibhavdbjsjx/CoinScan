@@ -1,0 +1,5 @@
+# Test and local-development tools. Not installed in the production image.
+-r requirements.txt
+pytest>=7.4.0
+pytest-asyncio>=0.23.0
+aiosqlite>=0.19.0

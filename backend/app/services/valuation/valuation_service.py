@@ -74,6 +74,8 @@ def parse_precious_metal_fineness(composition: Optional[str]) -> Optional[Tuple[
         return None
 
     found = {}
+    if "sterling" in text:  # defined standard: 92.5% silver
+        found.setdefault("XAG", set()).add(0.925)
     for pattern, kind in _FINENESS_PATTERNS:
         for match in pattern.finditer(text):
             if kind == "metal_first":

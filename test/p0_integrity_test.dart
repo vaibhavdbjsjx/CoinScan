@@ -214,6 +214,11 @@ void main() {
         expect(find.text('Auction'), findsNothing);
         expect(find.text('Dealer'), findsNothing);
         expect(find.text('Retail'), findsNothing);
+        await tester.scrollUntilVisible(
+          find.text('Saved estimate'),
+          250,
+          scrollable: find.byType(Scrollable).first,
+        );
         expect(find.text('Saved estimate'), findsOneWidget);
         expect(find.text('\$25.00'), findsOneWidget);
         expect(find.text('\$23.20'), findsOneWidget);

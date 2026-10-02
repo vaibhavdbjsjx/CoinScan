@@ -44,44 +44,14 @@ class CompareScreen extends StatelessWidget {
                 _buildCompareRow('Origin', item1.country, item2.country),
                 _buildCompareRow(
                   'Year',
-                  '${item1.year < 0 ? '${item1.year.abs()} BC' : item1.year}',
-                  '${item2.year < 0 ? '${item2.year.abs()} BC' : item2.year}',
+                  item1.year == 0 ? 'Not recorded' : '${item1.year < 0 ? '${item1.year.abs()} BC' : item1.year}',
+                  item2.year == 0 ? 'Not recorded' : '${item2.year < 0 ? '${item2.year.abs()} BC' : item2.year}',
                 ),
-                _buildCompareRow(
-                  'Composition',
-                  item1.composition,
-                  item2.composition,
-                ),
-                _buildCompareRow(
-                  'Weight',
-                  '${item1.weightG}g',
-                  '${item2.weightG}g',
-                ),
-                _buildCompareRow(
-                  'Diameter',
-                  '${item1.diameterMm}mm',
-                  '${item2.diameterMm}mm',
-                ),
-                _buildCompareRow(
-                  'Grade',
-                  item1.estimatedGrade,
-                  item2.estimatedGrade,
-                ),
-                _buildCompareRow(
-                  'Rarity',
-                  item1.rarity.displayName,
-                  item2.rarity.displayName,
-                ),
-                _buildCompareRow(
-                  'Retail Value',
-                  '\$${item1.retailPrice >= 1000 ? '${(item1.retailPrice / 1000).toStringAsFixed(1)}k' : item1.retailPrice}',
-                  '\$${item2.retailPrice >= 1000 ? '${(item2.retailPrice / 1000).toStringAsFixed(1)}k' : item2.retailPrice}',
-                ),
-                _buildCompareRow(
-                  'Investment',
-                  item1.investmentRating,
-                  item2.investmentRating,
-                ),
+                _buildCompareRow('Composition', _text(item1.composition), _text(item2.composition)),
+                _buildCompareRow('Weight', _num(item1.weightG, 'g'), _num(item2.weightG, 'g')),
+                _buildCompareRow('Diameter', _num(item1.diameterMm, 'mm'), _num(item2.diameterMm, 'mm')),
+                _buildCompareRow('Condition', _text(item1.estimatedGrade), _text(item2.estimatedGrade)),
+                _buildCompareRow('Saved estimate', _money(item1.retailPrice), _money(item2.retailPrice)),
               ],
             ),
 
@@ -191,5 +161,19 @@ class CompareScreen extends StatelessWidget {
         ),
       ],
     );
+  }
+
+  /// Recorded text, or "Not recorded".
+  static String _text(String value) => value.trim().isEmpty ? 'Not recorded' : value;
+
+  /// Recorded measurement, or "Not recorded" (0 means unknown, never a real size).
+  static String _num(double value, String unit) =>
+      value > 0 ? '$value $unit' : 'Not recorded';
+
+  static String _money(double value) {
+    if (value <= 0) return 'Not recorded';
+    return value >= 1000
+        ? '\$${(value / 1000).toStringAsFixed(1)}k'
+        : '\$${value.toStringAsFixed(2)}';
   }
 }

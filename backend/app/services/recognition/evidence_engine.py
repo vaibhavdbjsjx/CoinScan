@@ -25,6 +25,78 @@ def _catalogue_label(catalog_match: NumistaTypeDetail) -> str:
     return "Numista catalogue"
 
 
+_LEVEL_ORDER = [
+    ConfidenceLevel.INDETERMINATE,
+    ConfidenceLevel.LOW,
+    ConfidenceLevel.MEDIUM,
+    ConfidenceLevel.HIGH,
+]
+# Highest score a capped level may report, so the number never contradicts the label.
+_LEVEL_SCORE_CEILING = {
+    ConfidenceLevel.LOW: 0.59,
+    ConfidenceLevel.MEDIUM: 0.84,
+}
+
+
+def _gate_confidence(
+    level: ConfidenceLevel,
+    score: float,
+    corroborations: int,
+    reverse_captured: bool,
+    has_contradiction: bool,
+) -> Tuple[ConfidenceLevel, float]:
+    """Caps the confidence level by independent catalogue corroboration.
+
+    Every identity field comes from a single vision-model reading of the photo, and
+    the catalogue record was found by searching with that same reading, so the
+    weighted score alone can look strong without any independent confirmation.
+    - 0 cross-checks passed: at most LOW.
+    - 1 cross-check passed: at most MEDIUM.
+    - HIGH additionally requires the reverse side and no contradiction.
+    """
+    if corroborations <= 0:
+        ceiling = ConfidenceLevel.LOW
+    elif corroborations == 1 or not reverse_captured or has_contradiction:
+        ceiling = ConfidenceLevel.MEDIUM
+    else:
+        ceiling = ConfidenceLevel.HIGH
+
+    if _LEVEL_ORDER.index(level) > _LEVEL_ORDER.index(ceiling):
+        level = ceiling
+    # Keep the (rounded) number inside the band of the final level in every case.
+    if level in _LEVEL_SCORE_CEILING:
+        score = min(score, _LEVEL_SCORE_CEILING[level])
+    return level, score
+
+
+def _explain(level: ConfidenceLevel, title: str, corroborations: int, reverse_captured: bool) -> str:
+    checks = (
+        "1 detail read from the photo agrees"
+        if corroborations == 1
+        else f"{corroborations} details read from the photo agree"
+    )
+    if level == ConfidenceLevel.HIGH:
+        return (
+            f"Strong match for {title}: {checks} with the catalogue record and both sides "
+            "were photographed. This identifies the coin type only; it does not authenticate the coin."
+        )
+    if level == ConfidenceLevel.MEDIUM:
+        follow_up = (
+            "Photograph the reverse to confirm."
+            if not reverse_captured
+            else "Variety and mint details still need visual confirmation."
+        )
+        return f"Probable match for {title}: {checks} with the catalogue record. {follow_up}"
+    if level == ConfidenceLevel.LOW:
+        if corroborations == 0:
+            return (
+                f"Possible match for {title}. This rests only on the AI's reading of the photo; "
+                "no detail could be cross-checked against the catalogue record."
+            )
+        return f"Possible match for {title} with partial evidence. Several candidate types remain plausible."
+    return "Insufficient evidence to identify this coin."
+
+
 def build_candidate_from_evidence(
     vision: RawVisionObservation,
     ocr: ExtractedOcrSignals,
@@ -48,6 +120,8 @@ def build_candidate_from_evidence(
     ocr_score = 0.5
     metadata_score = 0.5
     contradiction_penalty = 0.0
+    # Independent catalogue cross-checks passed (see _gate_confidence).
+    corroborations = 0
 
     # 1. Visual Similarity Evidence
     evidence_list.append(
@@ -98,6 +172,7 @@ def build_candidate_from_evidence(
 
         if in_range:
             ocr_score = max(ocr_score, 0.92)
+            corroborations += 1
             evidence_list.append(
                 RecognitionEvidence(
                     type=RecognitionEvidenceType.YEAR,
@@ -126,6 +201,7 @@ def build_candidate_from_evidence(
         known_mints = [iss.mint_mark for iss in catalog_match.issues if iss.mint_mark]
         if vision.mint_mark in known_mints:
             metadata_score = max(metadata_score, 0.90)
+            corroborations += 1
             evidence_list.append(
                 RecognitionEvidence(
                     type=RecognitionEvidenceType.MINT_MARK,
@@ -142,6 +218,7 @@ def build_candidate_from_evidence(
         denom_upper = catalog_match.denomination.upper()
         if any(d in denom_upper or denom_upper in d for d in ocr.detected_denominations):
             ocr_score = max(ocr_score, 0.90)
+            corroborations += 1
             evidence_list.append(
                 RecognitionEvidence(
                     type=RecognitionEvidenceType.DENOMINATION,
@@ -182,10 +259,10 @@ def build_candidate_from_evidence(
             RecognitionEvidence(
                 type=RecognitionEvidenceType.OBVERSE_REVERSE_AGREEMENT,
                 label="Two-Sided Agreement",
-                detail="Front and reverse motifs correspond consistently to the same catalogue type.",
-                strength=SignalStrength.STRONG,
+                detail="The vision model judged the front and reverse photos to belong to the same coin issue.",
+                strength=SignalStrength.MODERATE,
                 score=0.95,
-                source="Joint Multi-Side Analysis",
+                source="Vision AI (both photos; model's own judgement)",
             )
         )
 
@@ -206,23 +283,24 @@ def build_candidate_from_evidence(
     raw_composite = (visual_score * 0.45) + (ocr_score * 0.30) + (metadata_score * 0.25) - contradiction_penalty
     overall_score = max(0.0, min(1.0, raw_composite))
 
-    # Derive Confidence Tier
+    # Derive Confidence Tier from the score, then cap it by corroboration.
     if overall_score >= 0.85 and contradiction_penalty == 0:
         conf_level = ConfidenceLevel.HIGH
-        explanation = (
-            f"High certainty match for {catalog_match.title}. Visual features, date, and denomination agree across both sides."
-            if reverse_captured
-            else f"High certainty match for {catalog_match.title} from the front side only; photograph the reverse to confirm."
-        )
     elif overall_score >= 0.60:
         conf_level = ConfidenceLevel.MEDIUM
-        explanation = f"Probable match for {catalog_match.title}. Coin type confirmed, but sub-variety details require visual inspection."
     elif overall_score >= 0.35:
         conf_level = ConfidenceLevel.LOW
-        explanation = "Possible match with partial evidence. Multiple candidate varieties exist."
     else:
         conf_level = ConfidenceLevel.INDETERMINATE
-        explanation = "Insufficient evidence to distinguish this coin with certainty."
+
+    conf_level, overall_score = _gate_confidence(
+        conf_level,
+        overall_score,
+        corroborations=corroborations,
+        reverse_captured=reverse_captured,
+        has_contradiction=contradiction_penalty > 0,
+    )
+    explanation = _explain(conf_level, catalog_match.title, corroborations, reverse_captured)
 
     identity = CoinIdentity(
         country=catalog_match.country or vision.country or "Unknown",
@@ -246,6 +324,7 @@ def build_candidate_from_evidence(
         ocrScore=round(ocr_score, 2),
         metadataScore=round(metadata_score, 2),
         explanation=explanation,
+        corroboratingChecks=corroborations,
     )
 
     coin_id = f"numista_{catalog_match.id}" if catalog_match.id else "coin_unverified"

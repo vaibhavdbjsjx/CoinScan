@@ -1,13 +1,43 @@
-fastapi>=0.109.0
-uvicorn[standard]>=0.27.0
-pydantic>=2.5.0
-pydantic-settings>=2.1.0
-httpx>=0.26.0
-python-multipart>=0.0.6
-pillow>=10.2.0
-numpy>=1.24.0
-pytest>=7.4.0
-pytest-asyncio>=0.23.0
-pyjwt[crypto]>=2.8.0
-sqlalchemy[asyncio]>=2.0.0
-asyncpg>=0.29.0
+# Production dependencies of the CoinScan API (container: CPython 3.11, linux
+# x86_64). Every package, including transitive ones, is pinned to the version
+# the test suite runs against, so the deployed image matches what was tested.
+# Upgrade deliberately: change the pins, then run the full test suite.
+
+# Direct dependencies
+fastapi==0.128.8
+uvicorn[standard]==0.39.0
+pydantic==2.13.5
+pydantic-settings==2.11.0
+httpx==0.28.1
+python-multipart==0.0.20
+pillow==11.3.0
+numpy==2.0.2
+pyjwt[crypto]==2.15.1
+sqlalchemy[asyncio]==2.0.54
+asyncpg==0.31.0
+
+# Transitive dependencies
+annotated-doc==0.0.5
+annotated-types==0.7.0
+anyio==4.12.1
+async-timeout==5.0.1
+certifi==2026.7.22
+cffi==2.0.0
+click==8.1.8
+cryptography==50.0.2
+exceptiongroup==1.3.1
+greenlet==3.2.5
+h11==0.16.0
+httpcore==1.0.9
+httptools==0.8.0
+idna==3.20
+pycparser==2.23
+pydantic-core==2.46.5
+python-dotenv==1.2.1
+pyyaml==6.0.3
+starlette==0.49.3
+typing-extensions==4.16.0
+typing-inspection==0.4.2
+uvloop==0.23.0
+watchfiles==1.1.1
+websockets==15.0.1

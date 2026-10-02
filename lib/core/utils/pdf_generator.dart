@@ -2,297 +2,210 @@ import 'dart:io';
 import 'package:path_provider/path_provider.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
-import '../storage/models.dart';
+import '../reports/coin_report_service.dart';
 
+/// Generates the CoinScan identification report PDF.
+///
+/// The document is an identification record, not a certificate: it has no
+/// certificate numbering or "issued" language, reports authenticity as not
+/// assessed, and labels every figure with where it came from. Fields that were
+/// not recorded are shown as "Not recorded" rather than filled with defaults.
 class PdfGenerator {
-  static Future<File> generateCollectibleReport(
-    CollectibleModel item, {
+  static const String reportTitle = 'Coin Identification Report';
+  static const String authenticityLine =
+      'Authenticity: not assessed. Photo recognition cannot authenticate coins '
+      'or detect counterfeits.';
+
+  /// Builds the PDF document in memory (used by [generateIdentificationReport]
+  /// and by tests; pass `compress: false` to inspect the text content).
+  static pw.Document buildIdentificationReport(
+    CoinReportData report, {
     double? purchasePrice,
+    String? purchaseCurrency,
     String? storageLocation,
     String? notes,
-  }) async {
-    final pdf = pw.Document();
+    bool compress = true,
+  }) {
+    final pdf = pw.Document(compress: compress, title: reportTitle, author: 'CoinScan');
+    final generated = report.generatedAt.toLocal().toString().substring(0, 16);
 
     pdf.addPage(
       pw.Page(
         pageFormat: PdfPageFormat.a4,
-        margin: const pw.EdgeInsets.all(32),
+        margin: const pw.EdgeInsets.all(36),
         build: (pw.Context context) {
           return pw.Column(
             crossAxisAlignment: pw.CrossAxisAlignment.start,
             children: [
-              // Header logo banner
               pw.Row(
                 mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: pw.CrossAxisAlignment.end,
                 children: [
                   pw.Column(
                     crossAxisAlignment: pw.CrossAxisAlignment.start,
                     children: [
                       pw.Text(
-                        'COINSCAN',
+                        'CoinScan',
                         style: pw.TextStyle(
-                          fontSize: 24,
+                          fontSize: 20,
                           fontWeight: pw.FontWeight.bold,
-                          color: PdfColor.fromHex('#D4AF37'),
-                        ),
-                      ),
-                      pw.SizedBox(height: 4),
-                      pw.Text(
-                        'Official Numismatic & Collectible Certificate',
-                        style: const pw.TextStyle(
-                          fontSize: 10,
-                          color: PdfColors.grey,
-                        ),
-                      ),
-                    ],
-                  ),
-                  pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.end,
-                    children: [
-                      pw.Text(
-                        'Report ID: CV-${item.id.toUpperCase().hashCode.abs()}',
-                        style: const pw.TextStyle(
-                          fontSize: 10,
-                          fontWeight: pw.FontWeight.bold,
+                          color: PdfColor.fromHex('#9A7B2F'),
                         ),
                       ),
                       pw.SizedBox(height: 2),
                       pw.Text(
-                        'Issued: ${DateTime.now().toLocal().toString().substring(0, 10)}',
-                        style: const pw.TextStyle(fontSize: 10),
+                        reportTitle,
+                        style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
                       ),
                     ],
                   ),
-                ],
-              ),
-              pw.SizedBox(height: 20),
-              pw.Divider(thickness: 1, color: PdfColor.fromHex('#E5E5EA')),
-              pw.SizedBox(height: 20),
-
-              // Title Summary block
-              pw.Text(
-                item.name,
-                style: const pw.TextStyle(
-                  fontSize: 20,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.SizedBox(height: 8),
-              pw.Text(
-                'Category: ${item.category} | Origin: ${item.country} | Mint Year: ${item.year < 0 ? "${item.year.abs()} BC" : item.year}',
-                style: const pw.TextStyle(
-                  fontSize: 11,
-                  color: PdfColors.grey700,
-                ),
-              ),
-              pw.SizedBox(height: 24),
-
-              // Stats Row
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  _buildStatCell('Sheldon Grade', item.estimatedGrade),
-                  _buildStatCell('Rarity Level', item.rarity.displayName),
-                  _buildStatCell(
-                    'Authenticity',
-                    '${(item.authenticityConfidence * 100).toStringAsFixed(0)}% Match',
-                  ),
-                  _buildStatCell(
-                    'Est. Retail',
-                    '\$${item.retailPrice >= 1000 ? "${(item.retailPrice / 1000).toStringAsFixed(1)}k" : item.retailPrice}',
+                  pw.Text(
+                    'Generated $generated',
+                    style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600),
                   ),
                 ],
               ),
-              pw.SizedBox(height: 32),
-
-              // Technical specs title
+              pw.SizedBox(height: 14),
+              pw.Divider(thickness: 0.8, color: PdfColors.grey300),
+              pw.SizedBox(height: 14),
               pw.Text(
-                'Technical Specifications',
-                style: const pw.TextStyle(
-                  fontSize: 14,
-                  fontWeight: pw.FontWeight.bold,
-                ),
+                report.title,
+                style: const pw.TextStyle(fontSize: 18, fontWeight: pw.FontWeight.bold),
               ),
-              pw.SizedBox(height: 12),
-
-              // Specs list table
-              pw.Table(
-                border: const pw.TableBorder(
-                  bottom: pw.BorderSide(color: PdfColors.grey300, width: 0.5),
-                  horizontalInside: pw.BorderSide(
-                    color: PdfColors.grey200,
-                    width: 0.5,
+              pw.SizedBox(height: 4),
+              pw.Text(
+                '${report.country} • ${report.denomination}',
+                style: const pw.TextStyle(fontSize: 11, color: PdfColors.grey700),
+              ),
+              pw.SizedBox(height: 16),
+              _section('Identification'),
+              _row('Identification confidence', report.identificationConfidence),
+              if (report.corroboratingChecks != null)
+                _row(
+                  'Details cross-checked with catalogue',
+                  '${report.corroboratingChecks}',
+                ),
+              _row('Year (read from photo)', report.year?.toString()),
+              _row('Mint mark (read from photo)', report.mintMark),
+              _row('Catalogue', report.numistaReference),
+              _row('Condition (recorded)', report.conditionGrade),
+              pw.SizedBox(height: 6),
+              pw.Text(
+                authenticityLine,
+                style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey800),
+              ),
+              pw.SizedBox(height: 16),
+              _section('Catalogue specifications (not measured from the coin)'),
+              _row('Composition', report.composition),
+              _row('Weight', report.weightG != null ? '${report.weightG} g' : null),
+              _row(
+                'Diameter',
+                report.diameterMm != null ? '${report.diameterMm} mm' : null,
+              ),
+              _row('Catalogue number', report.catalogueNumber),
+              pw.SizedBox(height: 16),
+              _section('Value'),
+              _row('Melt (bullion) value', report.meltValue),
+              _row('Collector / market range', report.valuationRange),
+              if (report.meltValue == null && report.valuationRange == null)
+                pw.Padding(
+                  padding: const pw.EdgeInsets.only(top: 2),
+                  child: pw.Text(
+                    'No verified valuation was available for this coin.',
+                    style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey700),
                   ),
                 ),
-                children: [
-                  _buildPdfSpecRow('Composition', item.composition),
-                  _buildPdfSpecRow('Actual Weight', '${item.weightG} g'),
-                  _buildPdfSpecRow('Diameter', '${item.diameterMm} mm'),
-                  _buildPdfSpecRow('Thickness', '${item.thicknessMm} mm'),
-                  _buildPdfSpecRow('Edge Structure', item.edgeType),
-                  _buildPdfSpecRow('Mint Mark', item.mintMark),
-                  _buildPdfSpecRow('Master Engraver', item.designer),
-                ],
-              ),
-              pw.SizedBox(height: 32),
-
-              // Historical Background
-              pw.Text(
-                'Historical Background',
-                style: const pw.TextStyle(
-                  fontSize: 14,
-                  fontWeight: pw.FontWeight.bold,
-                ),
-              ),
-              pw.SizedBox(height: 8),
-              pw.Text(
-                item.historicalInfo,
-                style: const pw.TextStyle(
-                  fontSize: 10,
-                  color: PdfColors.grey800,
-                  lineSpacing: 1.5,
-                ),
-              ),
-              pw.SizedBox(height: 32),
-
-              // Vault / Insurance metadata block
-              if (purchasePrice != null ||
-                  storageLocation != null ||
-                  (notes != null && notes.isNotEmpty)) ...[
-                pw.Text(
-                  'Owner Vault Records',
-                  style: const pw.TextStyle(
-                    fontSize: 14,
-                    fontWeight: pw.FontWeight.bold,
-                  ),
-                ),
-                pw.SizedBox(height: 12),
-                pw.Container(
-                  padding: const pw.EdgeInsets.all(12),
-                  decoration: pw.BoxDecoration(
-                    color: PdfColor.fromHex('#FAFAFA'),
-                    border: pw.Border.all(color: PdfColor.fromHex('#E5E5EA')),
-                    borderRadius: const pw.BorderRadius.all(
-                      pw.Radius.circular(8),
+              if (report.keyEvidence.isNotEmpty) ...[
+                pw.SizedBox(height: 16),
+                _section('Evidence'),
+                for (final line in report.keyEvidence.take(12))
+                  pw.Padding(
+                    padding: const pw.EdgeInsets.only(bottom: 3),
+                    child: pw.Text(
+                      '• $line',
+                      style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey900),
                     ),
                   ),
-                  child: pw.Column(
-                    crossAxisAlignment: pw.CrossAxisAlignment.start,
-                    children: [
-                      if (purchasePrice != null)
-                        _buildRecordRow(
-                          'Acquisition Price',
-                          '\$${purchasePrice.toStringAsFixed(2)}',
-                        ),
-                      if (storageLocation != null)
-                        _buildRecordRow(
-                          'Registered Vault Storage',
-                          storageLocation,
-                        ),
-                      if (notes != null && notes.isNotEmpty)
-                        _buildRecordRow('Collector Notes', notes),
-                    ],
-                  ),
-                ),
               ],
-
-              // Footer page indicator and note
+              if (purchasePrice != null ||
+                  (storageLocation != null && storageLocation.isNotEmpty) ||
+                  (notes != null && notes.isNotEmpty)) ...[
+                pw.SizedBox(height: 16),
+                _section('Owner records (entered by you)'),
+                if (purchasePrice != null)
+                  _row(
+                    'Purchase price',
+                    '${purchasePrice.toStringAsFixed(2)} ${purchaseCurrency ?? ''}'.trim(),
+                  ),
+                if (storageLocation != null && storageLocation.isNotEmpty)
+                  _row('Storage location', storageLocation),
+                if (notes != null && notes.isNotEmpty) _row('Notes', notes),
+              ],
               pw.Spacer(),
               pw.Divider(thickness: 0.5, color: PdfColors.grey300),
-              pw.SizedBox(height: 8),
-              pw.Row(
-                mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
-                children: [
-                  pw.Text(
-                    'CoinScan is an estimation protocol. Catalog valuations are not financial guarantees.',
-                    style: const pw.TextStyle(
-                      fontSize: 8,
-                      color: PdfColors.grey500,
-                    ),
-                  ),
-                  pw.Text(
-                    'Page 1 of 1',
-                    style: const pw.TextStyle(
-                      fontSize: 8,
-                      color: PdfColors.grey500,
-                    ),
-                  ),
-                ],
+              pw.SizedBox(height: 6),
+              pw.Text(
+                kReportLimitationsStatement,
+                style: const pw.TextStyle(fontSize: 8, color: PdfColors.grey600),
               ),
             ],
           );
         },
       ),
     );
+    return pdf;
+  }
 
-    // Save PDF to documents directory
-    final outputDir = await getApplicationDocumentsDirectory();
-    final file = File('${outputDir.path}/CoinScan_Report_${item.id}.pdf');
+  /// Writes the report to the app documents directory and returns the file.
+  static Future<File> generateIdentificationReport(
+    CoinReportData report, {
+    double? purchasePrice,
+    String? purchaseCurrency,
+    String? storageLocation,
+    String? notes,
+    Directory? outputDirectory,
+  }) async {
+    final pdf = buildIdentificationReport(
+      report,
+      purchasePrice: purchasePrice,
+      purchaseCurrency: purchaseCurrency,
+      storageLocation: storageLocation,
+      notes: notes,
+    );
+    final dir = outputDirectory ?? await getApplicationDocumentsDirectory();
+    final safeName = report.title.replaceAll(RegExp(r'[^A-Za-z0-9]+'), '_');
+    final stamp = report.generatedAt.millisecondsSinceEpoch;
+    final file = File('${dir.path}/CoinScan_Identification_${safeName}_$stamp.pdf');
     await file.writeAsBytes(await pdf.save());
     return file;
   }
 
-  static pw.Widget _buildStatCell(String label, String value) {
-    return pw.Column(
-      crossAxisAlignment: pw.CrossAxisAlignment.start,
-      children: [
-        pw.Text(
-          label,
-          style: const pw.TextStyle(fontSize: 9, color: PdfColors.grey600),
-        ),
-        pw.SizedBox(height: 4),
-        pw.Text(
-          value,
-          style: const pw.TextStyle(
-            fontSize: 12,
-            fontWeight: pw.FontWeight.bold,
-          ),
-        ),
-      ],
-    );
-  }
-
-  static pw.TableRow _buildPdfSpecRow(String label, String value) {
-    return pw.TableRow(
-      children: [
-        pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 6.0),
-          child: pw.Text(
-            label,
-            style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
-          ),
-        ),
-        pw.Padding(
-          padding: const pw.EdgeInsets.symmetric(vertical: 6.0),
-          child: pw.Text(
-            value,
-            style: const pw.TextStyle(
-              fontSize: 10,
-              fontWeight: pw.FontWeight.bold,
-            ),
-            textAlign: pw.TextAlign.right,
-          ),
-        ),
-      ],
-    );
-  }
-
-  static pw.Widget _buildRecordRow(String label, String value) {
+  static pw.Widget _section(String title) {
     return pw.Padding(
-      padding: const pw.EdgeInsets.symmetric(vertical: 4.0),
+      padding: const pw.EdgeInsets.only(bottom: 6),
+      child: pw.Text(
+        title,
+        style: const pw.TextStyle(fontSize: 12, fontWeight: pw.FontWeight.bold),
+      ),
+    );
+  }
+
+  static pw.Widget _row(String label, String? value) {
+    final shown = (value == null || value.trim().isEmpty) ? 'Not recorded' : value;
+    return pw.Padding(
+      padding: const pw.EdgeInsets.symmetric(vertical: 2.5),
       child: pw.Row(
-        mainAxisAlignment: pw.MainAxisAlignment.spaceBetween,
+        crossAxisAlignment: pw.CrossAxisAlignment.start,
         children: [
-          pw.Text(
-            label,
-            style: const pw.TextStyle(fontSize: 10, color: PdfColors.grey600),
-          ),
-          pw.Text(
-            value,
-            style: const pw.TextStyle(
-              fontSize: 10,
-              fontWeight: pw.FontWeight.bold,
+          pw.SizedBox(
+            width: 190,
+            child: pw.Text(
+              label,
+              style: const pw.TextStyle(fontSize: 9.5, color: PdfColors.grey700),
             ),
+          ),
+          pw.Expanded(
+            child: pw.Text(shown, style: const pw.TextStyle(fontSize: 9.5)),
           ),
         ],
       ),

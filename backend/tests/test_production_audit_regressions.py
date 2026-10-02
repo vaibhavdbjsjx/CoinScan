@@ -61,9 +61,10 @@ class TestSafeParseVisionResponse:
         assert obs.visual_similarity_score == 0.0
 
     def test_defaults_visual_similarity_score_when_missing(self):
+        # A missing self-rating must be neutral (0.5), never optimistic (was 0.8).
         raw = json.dumps({"country": "Test", "denomination": "1 Coin"})
         obs = safe_parse_vision_response(raw)
-        assert obs.visual_similarity_score == 0.8
+        assert obs.visual_similarity_score == 0.5
 
     def test_fallback_for_unparsable_score(self):
         raw = json.dumps({"country": "Test", "denomination": "1 Coin", "visual_similarity_score": "very high"})

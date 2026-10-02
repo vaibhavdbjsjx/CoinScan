@@ -29,7 +29,7 @@ class CoinReportSheet extends StatelessWidget {
     HapticFeedback.lightImpact();
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
-        content: Text('Coin Report summary copied to clipboard!'),
+        content: Text('Report summary copied.'),
         behavior: SnackBarBehavior.floating,
       ),
     );
@@ -37,9 +37,7 @@ class CoinReportSheet extends StatelessWidget {
 
   Future<void> _generatePdf(BuildContext context) async {
     try {
-      final file = await PdfGenerator.generateCollectibleReport(
-        report.toCollectibleModel(),
-      );
+      final file = await PdfGenerator.generateIdentificationReport(report);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -99,7 +97,7 @@ class CoinReportSheet extends StatelessWidget {
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
                   Text(
-                    'My Coin Report',
+                    'Identification Report',
                     style: AppTypography.titleMedium.copyWith(
                       color: Colors.white,
                       fontWeight: FontWeight.bold,
@@ -115,7 +113,7 @@ class CoinReportSheet extends StatelessWidget {
 
             const Divider(color: Colors.white12),
 
-            // Scrollable Certificate Card
+            // Scrollable report card (an identification record, not a certificate)
             Expanded(
               child: ListView(
                 padding: const EdgeInsets.all(AppSpacing.lg),
@@ -178,7 +176,7 @@ class CoinReportSheet extends StatelessWidget {
                                 ),
                               ),
                               child: Text(
-                                report.confidenceLevel,
+                                'Confidence: ${report.identificationConfidence}',
                                 style: AppTypography.captionSmall.copyWith(
                                   color: AppColors.emerald,
                                   fontWeight: FontWeight.bold,
@@ -234,13 +232,15 @@ class CoinReportSheet extends StatelessWidget {
                           runSpacing: AppSpacing.md,
                           children: [
                             if (report.year != null)
-                              _buildSpec('Year', '${report.year}'),
+                              _buildSpec('Year (from photo)', '${report.year}'),
                             if (report.mintMark != null)
-                              _buildSpec('Mint Mark', report.mintMark!),
+                              _buildSpec('Mint mark (from photo)', report.mintMark!),
                             if (report.composition != null)
-                              _buildSpec('Composition', report.composition!),
+                              _buildSpec('Composition (catalogue)', report.composition!),
+                            if (report.meltValue != null)
+                              _buildSpec('Melt value', report.meltValue!),
                             if (report.valuationRange != null)
-                              _buildSpec('Estimated Range', report.valuationRange!),
+                              _buildSpec('Market range', report.valuationRange!),
                             if (report.numistaReference != null)
                               _buildSpec('Catalogue', report.numistaReference!),
                           ],
@@ -251,7 +251,7 @@ class CoinReportSheet extends StatelessWidget {
                           const Divider(color: Colors.white12),
                           const SizedBox(height: AppSpacing.md),
                           Text(
-                            'Key Verified Evidence',
+                            'Evidence',
                             style: AppTypography.caption.copyWith(
                               color: Colors.white,
                               fontWeight: FontWeight.bold,
@@ -265,8 +265,8 @@ class CoinReportSheet extends StatelessWidget {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   const Icon(
-                                    Icons.check_rounded,
-                                    size: 14,
+                                    Icons.circle,
+                                    size: 5,
                                     color: AppColors.gold,
                                   ),
                                   const SizedBox(width: 6),
@@ -287,12 +287,13 @@ class CoinReportSheet extends StatelessWidget {
                         const Divider(color: Colors.white12),
                         const SizedBox(height: AppSpacing.sm),
 
-                        // Footer Note
+                        // Limitations statement (always shown)
                         Text(
-                          'CoinScan Personal Numismatics Assistant • coinscan.app',
+                          kReportLimitationsStatement,
                           style: AppTypography.captionSmall.copyWith(
-                            color: Colors.white38,
-                            fontSize: 10,
+                            color: Colors.white54,
+                            fontSize: 10.5,
+                            height: 1.35,
                           ),
                         ),
                       ],

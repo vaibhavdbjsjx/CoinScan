@@ -6,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../auth/auth_service.dart';
 import '../config/app_config.dart';
 import 'package:uuid/uuid.dart';
+import 'guest_install_id.dart';
 import 'recognition_models.dart';
 
 /// Configuration for the CoinScan backend recognition service endpoint.
@@ -50,12 +51,15 @@ class RecognitionBackendConfig {
 class HttpRecognitionService implements RecognitionService {
   final RecognitionBackendConfig config;
   final http.Client _httpClient;
+  final GuestInstallId _installId;
 
   HttpRecognitionService({
     RecognitionBackendConfig? config,
     http.Client? httpClient,
+    GuestInstallId? installId,
   })  : config = config ?? RecognitionBackendConfig.defaultConfig(),
-        _httpClient = httpClient ?? http.Client();
+        _httpClient = httpClient ?? http.Client(),
+        _installId = installId ?? GuestInstallId.instance;
 
   @override
   Future<RecognitionResult> recognize(CoinScanInput input) async {
@@ -76,44 +80,24 @@ class HttpRecognitionService implements RecognitionService {
         request.headers['Authorization'] = 'Bearer $token';
       }
 
+      // Signed-out scans carry the install ID as a rate-limit hint for the
+      // server's guest allowance. It is never sent with an account's requests.
+      if (!request.headers.containsKey('Authorization') &&
+          !request.headers.containsKey('X-API-Secret')) {
+        request.headers[GuestInstallId.header] = await _installId.value();
+      }
+
       // Add Form Fields
       request.fields['preferred_currency'] = input.preferredCurrency ?? 'USD';
       request.fields['locale'] = input.locale ?? 'en-US';
 
-      // 1. Add Front Image
-      final front = input.frontImage;
-      if (front.path.isNotEmpty) {
-        request.files.add(
-          await http.MultipartFile.fromPath(
-            'front_image',
-            front.path,
-            filename: 'front.jpg',
-          ),
-        );
-      }
-
-      // 2. Add Optional Reverse Image
-      final reverse = input.reverseImage;
-      if (reverse != null && reverse.path.isNotEmpty) {
-        request.files.add(
-          await http.MultipartFile.fromPath(
-            'reverse_image',
-            reverse.path,
-            filename: 'reverse.jpg',
-          ),
-        );
-      }
-
-      // 3. Add Optional Edge Image
-      final edge = input.edgeImage;
-      if (edge != null && edge.path.isNotEmpty) {
-        request.files.add(
-          await http.MultipartFile.fromPath(
-            'edge_image',
-            edge.path,
-            filename: 'edge.jpg',
-          ),
-        );
+      // Images: front (required), reverse and edge (optional).
+      for (final part in [
+        await _imagePart('front_image', input.frontImage, 'front.jpg'),
+        await _imagePart('reverse_image', input.reverseImage, 'reverse.jpg'),
+        await _imagePart('edge_image', input.edgeImage, 'edge.jpg'),
+      ]) {
+        if (part != null) request.files.add(part);
       }
 
       // Send Request with Timeout
@@ -128,17 +112,28 @@ class HttpRecognitionService implements RecognitionService {
             jsonDecode(utf8.decode(response.bodyBytes)) as Map<String, dynamic>;
         return RecognitionResult.fromJson(json);
       } else if (response.statusCode == 429) {
-        String quotaMessage = 'Too many scan requests. Please wait a moment before trying again.';
-        try {
-          final decoded = jsonDecode(utf8.decode(response.bodyBytes));
-          if (decoded is Map && decoded['detail'] != null) {
-            quotaMessage = decoded['detail'].toString();
-          }
-        } catch (_) {}
+        final detail = _errorDetail(response);
+        final message = _detailMessage(detail) ??
+            'Too many scan requests. Please wait a moment before trying again.';
         return RecognitionResult(
           status: RecognitionStatus.error,
-          message: quotaMessage,
-          warnings: [quotaMessage],
+          message: message,
+          processingMetadata: {
+            'error_code': _detailCode(detail) ?? 'rate_limited',
+            if (detail is Map && detail['limit'] != null) 'limit': detail['limit'],
+            if (detail is Map && detail['resets_at_utc'] != null)
+              'resets_at_utc': detail['resets_at_utc'],
+          },
+          warnings: [message],
+        );
+      } else if (response.statusCode == 503 &&
+          _detailCode(_errorDetail(response)) == 'guest_scanning_unavailable') {
+        return RecognitionResult(
+          status: RecognitionStatus.unavailable,
+          message: _detailMessage(_errorDetail(response)) ??
+              'Scanning without an account is not available right now.',
+          processingMetadata: const {'error_code': 'guest_scanning_unavailable'},
+          warnings: const ['Sign in to keep scanning.'],
         );
       } else if (response.statusCode == 413) {
         return const RecognitionResult(
@@ -175,6 +170,42 @@ class HttpRecognitionService implements RecognitionService {
         warnings: [e.toString()],
       );
     }
+  }
+
+  /// Uses the normalized in-memory JPEG when available (always on the web,
+  /// where there is no file system), otherwise the file on disk.
+  static Future<http.MultipartFile?> _imagePart(
+    String field,
+    CapturedCoinImage? image,
+    String filename,
+  ) async {
+    if (image == null) return null;
+    final bytes = image.bytes;
+    if (bytes != null && bytes.isNotEmpty) {
+      return http.MultipartFile.fromBytes(field, bytes, filename: filename);
+    }
+    if (image.path.isEmpty) return null;
+    return http.MultipartFile.fromPath(field, image.path, filename: filename);
+  }
+
+  /// The `detail` of a FastAPI error body: a map (`error`, `message`, ...) or a
+  /// plain string. Null when the body is not JSON.
+  static Object? _errorDetail(http.Response response) {
+    try {
+      final decoded = jsonDecode(utf8.decode(response.bodyBytes));
+      return decoded is Map ? decoded['detail'] : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static String? _detailCode(Object? detail) =>
+      detail is Map && detail['error'] is String ? detail['error'] as String : null;
+
+  static String? _detailMessage(Object? detail) {
+    if (detail is Map && detail['message'] is String) return detail['message'] as String;
+    if (detail is String && detail.trim().isNotEmpty) return detail;
+    return null;
   }
 
   void dispose() {

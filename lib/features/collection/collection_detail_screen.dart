@@ -1,93 +1,106 @@
 import 'dart:io';
-import 'dart:math';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_animate/flutter_animate.dart';
-import 'package:fl_chart/fl_chart.dart';
-import '../../core/theme/colors.dart';
-import '../../core/theme/theme.dart';
-import '../../core/theme/typography.dart';
-import '../../core/widgets/premium_widgets.dart';
-import '../../core/storage/models.dart';
+
+import '../../core/reports/coin_report_service.dart';
 import '../../core/storage/collection_storage_service.dart';
-import '../../core/network/mock_api.dart';
+import '../../core/theme/colors.dart';
+import '../../core/theme/tokens.dart';
+import '../../core/theme/typography.dart';
 import '../../core/utils/pdf_generator.dart';
+import '../../core/widgets/premium_widgets.dart';
 
+/// Detail view for a coin saved in the user's vault.
+///
+/// Shows only what was recorded for this coin: the photos, the identification
+/// and evidence captured at scan time, catalogue specifications, recorded
+/// values, and the owner's own notes. Nothing is inferred: there is no rarity
+/// meter, price history, generated timeline or authenticity score, because no
+/// verified source for them exists.
 class CollectionDetailScreen extends StatefulWidget {
-  final CollectibleModel? collectible;
-  final VaultCoinItem? vaultItem;
+  final VaultCoinItem vaultItem;
 
-  const CollectionDetailScreen({
-    super.key,
-    this.collectible,
-    this.vaultItem,
-  }) : assert(collectible != null || vaultItem != null);
-
-  CollectibleModel get resolvedCollectible =>
-      vaultItem != null ? vaultItem!.toCollectibleModel() : collectible!;
+  const CollectionDetailScreen({super.key, required this.vaultItem});
 
   @override
   State<CollectionDetailScreen> createState() => _CollectionDetailScreenState();
 }
 
 class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
-  bool _isFrontView = true;
-  String _selectedChartDuration = '1 Year';
-  bool _hasPriceAlert = false;
-  bool _isSavedInVault = false;
-  String _selectedStudioBg = 'light';
+  static const _storageOptions = [
+    'Home Vault',
+    'Safe Deposit Box A',
+    'Safe Deposit Box B',
+    'Display Cabinet',
+  ];
 
-  // Vault form state
   final _purchasePriceController = TextEditingController();
-  final _purchaseLocationController = TextEditingController();
   final _notesController = TextEditingController();
-  String _storageLocation = 'Home Vault';
+  late String _storageLocation;
+  bool _showFront = true;
+  bool _isSaving = false;
+  late VaultCoinItem _item;
 
   @override
   void initState() {
     super.initState();
-    if (widget.vaultItem != null) {
-      _isSavedInVault = true;
-      final v = widget.vaultItem!;
-      // Only a price the user actually entered. Pre-filling the estimate here
-      // would silently save it as the purchase price on the next edit.
-      _purchasePriceController.text = v.purchasePrice != null
-          ? v.purchasePrice!.toStringAsFixed(0)
-          : '';
-      _purchaseLocationController.text = v.storageLocation ?? 'Home Vault';
-      _notesController.text = v.notes ?? '';
-      _storageLocation = v.storageLocation ?? 'Home Vault';
-    } else {
-      final c = widget.resolvedCollectible;
-      final existing = CollectionStorageService.instance.items.where(
-        (p) => p.coinName.toLowerCase() == c.name.toLowerCase() || p.id == c.id,
+    _item = widget.vaultItem;
+    // Only a price the user actually entered; never pre-fill an estimate
+    // that would then be saved as if it were the real purchase price.
+    _purchasePriceController.text = _item.purchasePrice != null
+        ? _item.purchasePrice!.toStringAsFixed(2)
+        : '';
+    _notesController.text = _item.notes ?? '';
+    final stored = _item.storageLocation;
+    _storageLocation = (stored != null && _storageOptions.contains(stored))
+        ? stored
+        : _storageOptions.first;
+  }
+
+  @override
+  void dispose() {
+    _purchasePriceController.dispose();
+    _notesController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _saveChanges() async {
+    final priceText = _purchasePriceController.text.trim();
+    final price = priceText.isEmpty ? null : double.tryParse(priceText);
+    if (priceText.isNotEmpty && (price == null || price < 0)) {
+      AppSnack.show(context, 'Enter a valid purchase price.', tone: SnackTone.error);
+      return;
+    }
+    setState(() => _isSaving = true);
+    final updated = _item.copyWith(
+      purchasePrice: price,
+      storageLocation: _storageLocation,
+      notes: _notesController.text.trim(),
+    );
+    try {
+      await CollectionStorageService.instance.saveItem(updated);
+      if (!mounted) return;
+      setState(() => _item = updated);
+      AppSnack.show(context, 'Changes saved.', tone: SnackTone.success);
+    } catch (_) {
+      if (!mounted) return;
+      AppSnack.show(
+        context,
+        'Your changes could not be saved. Check your connection and try again.',
+        tone: SnackTone.error,
       );
-      if (existing.isNotEmpty) {
-        final match = existing.first;
-        _isSavedInVault = true;
-        // Only a price the user actually entered; never pre-fill an estimate
-        // that would then be saved as if it were the real purchase price.
-        _purchasePriceController.text = match.purchasePrice != null
-            ? match.purchasePrice!.toStringAsFixed(0)
-            : '';
-        _purchaseLocationController.text = match.storageLocation ?? 'Home Vault';
-        _notesController.text = match.notes ?? '';
-        _storageLocation = match.storageLocation ?? 'Home Vault';
-      } else {
-        _purchasePriceController.text = '';
-        _purchaseLocationController.text = 'Numismatic Dealer';
-        _notesController.text = 'Identified in CoinScan.';
-      }
+    } finally {
+      if (mounted) setState(() => _isSaving = false);
     }
   }
 
   Future<void> _deleteFromVault() async {
-    final c = widget.resolvedCollectible;
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('Remove from Vault?'),
-        content: Text('Are you sure you want to remove "${c.name}" from your collection vault?'),
+        title: const Text('Remove from vault?'),
+        content: Text('"${_item.coinName}" will be removed from your vault.'),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
@@ -100,1201 +113,422 @@ class _CollectionDetailScreenState extends State<CollectionDetailScreen> {
         ],
       ),
     );
-
-    if (confirmed == true && widget.vaultItem != null) {
-      await CollectionStorageService.instance.deleteItem(widget.vaultItem!.id);
-      if (mounted) {
-        Navigator.pop(context, true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: AppColors.crimson,
-            content: Text('Coin removed from vault.'),
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _saveVaultChanges() async {
-    if (widget.vaultItem != null) {
-      final price = double.tryParse(_purchasePriceController.text);
-      final updated = widget.vaultItem!.copyWith(
-        purchasePrice: price,
-        storageLocation: _storageLocation,
-        notes: _notesController.text,
-      );
-      await CollectionStorageService.instance.saveItem(updated);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: AppColors.emerald,
-            content: Text('Vault notes and details saved.'),
-          ),
-        );
-      }
-    } else {
-      final c = widget.resolvedCollectible;
-      final newItem = VaultCoinItem(
-        id: 'vault_${c.id}_${DateTime.now().millisecondsSinceEpoch}',
-        coinName: c.name,
-        country: c.country,
-        denomination: c.denomination,
-        year: c.year,
-        mintMark: c.mintMark,
-        composition: c.composition,
-        weightG: c.weightG,
-        diameterMm: c.diameterMm,
-        currentEstimatedValue: c.retailPrice > 0 ? c.retailPrice : null,
-        initialValuationSnapshot: c.retailPrice > 0 ? c.retailPrice : null,
-        confidenceScore: c.authenticityConfidence,
-        purchasePrice: double.tryParse(_purchasePriceController.text),
-        storageLocation: _storageLocation,
-        notes: _notesController.text,
-        dateAdded: DateTime.now(),
-      );
-      await CollectionStorageService.instance.saveItem(newItem);
-      if (mounted) {
-        setState(() => _isSavedInVault = true);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            backgroundColor: AppColors.emerald,
-            content: Text('Saved to your Collection Vault.'),
-          ),
-        );
-      }
-    }
-  }
-
-  @override
-  void dispose() {
-    _purchasePriceController.dispose();
-    _purchaseLocationController.dispose();
-    _notesController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _exportPdfReport() async {
-    final double? price = _isSavedInVault
-        ? double.tryParse(_purchasePriceController.text)
-        : null;
-    final String? storage = _isSavedInVault ? _storageLocation : null;
-    final String? notesVal = _isSavedInVault ? _notesController.text : null;
-
+    if (confirmed != true || !mounted) return;
     try {
-      final file = await PdfGenerator.generateCollectibleReport(
-        widget.resolvedCollectible,
-        purchasePrice: price,
-        storageLocation: storage,
-        notes: notesVal,
+      await CollectionStorageService.instance.deleteItem(_item.id);
+      if (!mounted) return;
+      Navigator.pop(context, true);
+    } catch (_) {
+      if (!mounted) return;
+      AppSnack.show(
+        context,
+        'The coin could not be removed. Check your connection and try again.',
+        tone: SnackTone.error,
       );
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: AppColors.emerald,
-            content: Text(
-              'PDF Report saved to: ${file.path.split('/').last}',
-              style: AppTypography.buttonText,
-            ),
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            backgroundColor: AppColors.crimson,
-            content: Text(
-              'Error generating report: $e',
-              style: AppTypography.buttonText,
-            ),
-          ),
-        );
-      }
     }
   }
 
-  Widget _buildCoinVisual(CollectibleModel c) {
-    final imagePath = _isFrontView
-        ? widget.vaultItem?.frontImagePath
-        : widget.vaultItem?.reverseImagePath;
-    final hasRealImage = !kIsWeb &&
-        imagePath != null &&
-        imagePath.isNotEmpty &&
-        File(imagePath).existsSync();
-
-    if (hasRealImage) {
-      return ClipOval(
-        child: Image.file(
-          File(imagePath),
-          height: 180,
-          width: 180,
-          fit: BoxFit.cover,
-        ),
+  Future<void> _exportPdf() async {
+    try {
+      final file = await PdfGenerator.generateIdentificationReport(
+        CoinReportData.fromVaultItem(_item),
+        purchasePrice: _item.purchasePrice,
+        purchaseCurrency: _item.currencyCode,
+        storageLocation: _item.storageLocation,
+        notes: _item.notes,
       );
+      if (!mounted) return;
+      AppSnack.show(
+        context,
+        'Report saved: ${file.path.split('/').last}',
+        tone: SnackTone.success,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      AppSnack.show(context, 'The report could not be created.', tone: SnackTone.error);
     }
-
-    return Container(
-      height: 180,
-      width: 180,
-      decoration: const BoxDecoration(
-        shape: BoxShape.circle,
-      ),
-      child: CustomPaint(
-        painter: DetailedCoinGraphicPainter(
-          collectible: c,
-          isFront: _isFrontView,
-        ),
-      ),
-    );
   }
 
   @override
   Widget build(BuildContext context) {
-    final c = widget.resolvedCollectible;
-    final basePrice = widget.vaultItem?.currentEstimatedValue ?? c.retailPrice;
-    final prices = MockApi.getPriceHistory(
-      c.id,
-      _selectedChartDuration,
-      baseOverride: basePrice,
-    );
+    final item = _item;
+    final subtitle = [
+      item.country,
+      if (item.year != null)
+        item.year! < 0 ? '${item.year!.abs()} BC' : '${item.year}',
+      item.denomination,
+    ].join(' • ');
 
     return Scaffold(
       backgroundColor: AppColors.background,
       appBar: AppBar(
-        title: Text(
-          c.type == CollectibleType.coin
-              ? 'Coin Identification'
-              : 'Banknote Identification',
-        ),
+        title: const Text('Coin details'),
         actions: [
           IconButton(
-            icon: Icon(
-              _hasPriceAlert
-                  ? Icons.notifications_active
-                  : Icons.notifications_none,
-              color: _hasPriceAlert
-                  ? AppColors.goldDark
-                  : AppColors.textPrimary,
-            ),
-            onPressed: () {
-              setState(() {
-                _hasPriceAlert = !_hasPriceAlert;
-              });
-              ScaffoldMessenger.of(context).showSnackBar(
-                SnackBar(
-                  backgroundColor: AppColors.goldDark,
-                  content: Text(
-                    _hasPriceAlert
-                        ? 'Price alerts enabled for this item.'
-                        : 'Price alerts disabled.',
-                    style: AppTypography.buttonText,
-                  ),
-                ),
-              );
-            },
+            icon: const Icon(Icons.picture_as_pdf_outlined),
+            tooltip: 'Export identification report',
+            onPressed: _exportPdf,
           ),
           IconButton(
-            icon: const Icon(Icons.share_outlined),
-            onPressed: _exportPdfReport,
+            icon: const Icon(Icons.delete_outline, color: AppColors.crimson),
+            tooltip: 'Remove from vault',
+            onPressed: _deleteFromVault,
           ),
-          if (widget.vaultItem != null)
-            IconButton(
-              icon: const Icon(Icons.delete_outline, color: AppColors.crimson),
-              tooltip: 'Remove from Vault',
-              onPressed: _deleteFromVault,
-            ),
         ],
       ),
-      body: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+      body: SafeArea(
+        top: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+            AppSpacing.xl,
+            AppSpacing.base,
+            AppSpacing.xl,
+            AppSpacing.huge,
+          ),
           children: [
-            // 1. Swipe between Front & Back Premium Visualizer
-            Center(
-              child: Column(
+            _PhotoPanel(
+              item: item,
+              showFront: _showFront,
+              onToggle: (front) => setState(() => _showFront = front),
+            ),
+            const SizedBox(height: AppSpacing.xl),
+            Text(item.coinName, style: AppTypography.sectionHeader.copyWith(fontSize: 22)),
+            const SizedBox(height: AppSpacing.xs),
+            Text(subtitle, style: AppTypography.bodyMuted),
+            const SizedBox(height: AppSpacing.xl),
+            _IdentificationCard(item: item),
+            const SizedBox(height: AppSpacing.base),
+            _ValueCard(item: item),
+            const SizedBox(height: AppSpacing.base),
+            _CatalogueCard(item: item),
+            if ((item.conditionEstimate ?? item.grade)?.trim().isNotEmpty ?? false) ...[
+              const SizedBox(height: AppSpacing.base),
+              _DetailCard(
+                icon: Icons.workspace_premium_outlined,
+                title: 'Condition',
                 children: [
-                  const SizedBox(height: 16),
-                  GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _isFrontView = !_isFrontView;
-                      });
-                    },
-                    child:
-                        Container(
-                              height: 260,
-                              width: 260,
-                              decoration: BoxDecoration(
-                                borderRadius: BorderRadius.circular(24),
-                                border: Border.all(
-                                  color: AppColors.borderLight,
-                                  width: 1.5,
-                                ),
-                                boxShadow: AppTheme.premiumShadow,
-                              ),
-                              clipBehavior: Clip.antiAlias,
-                              child: PhotoStudioViewer(
-                                backgroundType: _selectedStudioBg,
-                                child: _buildCoinVisual(c),
-                              ),
-                            )
-                            .animate(key: ValueKey('coin_view_$_isFrontView'))
-                            .flipH(duration: 400.ms),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      const Icon(
-                        Icons.swap_horizontal_circle_outlined,
-                        size: 14,
-                        color: AppColors.textSecondary,
-                      ),
-                      const SizedBox(width: 4),
-                      Text(
-                        _isFrontView
-                            ? 'FRONT SIDE (TAP TO SWIPE)'
-                            : 'REVERSE SIDE (TAP TO SWIPE)',
-                        style: AppTypography.caption.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
+                  _KeyValue('Recorded condition', (item.conditionEstimate ?? item.grade)!),
+                  const SizedBox(height: AppSpacing.xs),
                   Text(
-                    'PHOTO STUDIO BG FILTER',
-                    style: AppTypography.goldLabel.copyWith(fontSize: 9),
-                  ),
-                  const SizedBox(height: 8),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: ['light', 'dark', 'velvet', 'wood', 'concrete']
-                        .map((bg) {
-                          final isSel = _selectedStudioBg == bg;
-                          return GestureDetector(
-                            onTap: () => setState(() => _selectedStudioBg = bg),
-                            child: Container(
-                              margin: const EdgeInsets.symmetric(horizontal: 4),
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 10,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: isSel
-                                    ? AppColors.gold
-                                    : AppColors.surface,
-                                borderRadius: BorderRadius.circular(8),
-                                border: Border.all(
-                                  color: isSel
-                                      ? AppColors.gold
-                                      : AppColors.borderLight,
-                                ),
-                              ),
-                              child: Text(
-                                bg.toUpperCase(),
-                                style: AppTypography.caption.copyWith(
-                                  color: isSel
-                                      ? Colors.white
-                                      : AppColors.textSecondary,
-                                  fontSize: 9,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                              ),
-                            ),
-                          );
-                        })
-                        .toList(),
+                    'A photo-based estimate, not a professional grade.',
+                    style: AppTypography.caption,
                   ),
                 ],
               ),
-            ),
-
-            const SizedBox(height: 32),
-
-            // 2. Primary Summary Information
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: AppColors.gold.withValues(alpha: 0.1),
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                    child: Text(
-                      c.category.toUpperCase(),
-                      style: AppTypography.goldLabel,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    c.name,
-                    style: AppTypography.sectionHeader.copyWith(fontSize: 22),
-                  ),
-                  const SizedBox(height: 8),
-                  Text(
-                    '${c.country} • Minted in ${c.year < 0 ? '${c.year.abs()} BC' : c.year}',
-                    style: AppTypography.bodyMuted,
-                  ),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 32),
-
-            // 3. Rarity Score Visual Meter
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: GlassCard(
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Text('Rarity Level', style: AppTypography.caption),
-                        Text(
-                          c.rarity.displayName.toUpperCase(),
-                          style: AppTypography.goldLabel.copyWith(fontSize: 14),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 16),
-                    // Colored rating indicator bars
-                    Row(
-                      children: List.generate(6, (index) {
-                        final val = _getRarityBarValue(c.rarity);
-                        final isActive = index <= val;
-                        return Expanded(
-                          child: Container(
-                            height: 6,
-                            margin: EdgeInsets.only(right: index == 5 ? 0 : 4),
-                            decoration: BoxDecoration(
-                              color: isActive
-                                  ? AppColors.gold
-                                  : AppColors.border,
-                              borderRadius: BorderRadius.circular(3),
-                            ),
-                          ),
-                        );
-                      }),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Rarity rating is based on surviving population estimates and frequency in public auction archives.',
-                      style: AppTypography.caption.copyWith(fontSize: 11),
-                    ),
+            ],
+            const SizedBox(height: AppSpacing.base),
+            _DetailCard(
+              icon: Icons.edit_note_rounded,
+              title: 'Your records',
+              children: [
+                Text('Purchase price (${item.currencyCode})', style: AppTypography.caption),
+                const SizedBox(height: AppSpacing.xs),
+                TextField(
+                  key: const ValueKey('purchase_price_field'),
+                  controller: _purchasePriceController,
+                  keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(hintText: 'Not recorded'),
+                ),
+                const SizedBox(height: AppSpacing.base),
+                Text('Storage location', style: AppTypography.caption),
+                const SizedBox(height: AppSpacing.xs),
+                DropdownButtonFormField<String>(
+                  initialValue: _storageLocation,
+                  items: [
+                    for (final loc in _storageOptions)
+                      DropdownMenuItem(value: loc, child: Text(loc)),
                   ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // 4. Identification Evidence
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          Expanded(
-                            child: Row(
-                              children: [
-                                const Icon(
-                                  Icons.fact_check_outlined,
-                                  color: AppColors.emerald,
-                                  size: 20,
-                                ),
-                                const SizedBox(width: 8),
-                                Flexible(
-                                  child: Text(
-                                    'Why this match',
-                                    style: AppTypography.bodyMedium.copyWith(
-                                      fontWeight: FontWeight.bold,
-                                    ),
-                                    overflow: TextOverflow.ellipsis,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(width: 12),
-                          Flexible(
-                            child: Container(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 8,
-                                vertical: 4,
-                              ),
-                              decoration: BoxDecoration(
-                                color: AppColors.emeraldLight,
-                                borderRadius: BorderRadius.circular(8),
-                              ),
-                              child: Text(
-                                '${(c.authenticityConfidence * 100).toStringAsFixed(0)}% match',
-                                style: AppTypography.caption.copyWith(
-                                  color: AppColors.emerald,
-                                  fontWeight: FontWeight.bold,
-                                ),
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Evidence from visible design, inscriptions, date, mint and physical specifications. This is not an authentication certificate.',
-                        style: AppTypography.caption.copyWith(fontSize: 11),
-                      ),
-                      const SizedBox(height: 12),
-                      ...c.authenticityReasons.map((reason) {
-                        return Padding(
-                          padding: const EdgeInsets.only(bottom: 8.0),
-                          child: Row(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              const Padding(
-                                padding: EdgeInsets.only(top: 4.0),
-                                child: Icon(
-                                  Icons.check_circle_outline,
-                                  color: AppColors.emerald,
-                                  size: 14,
-                                ),
-                              ),
-                              const SizedBox(width: 8),
-                              Expanded(
-                                child: Text(
-                                  reason,
-                                  style: AppTypography.bodyMedium.copyWith(
-                                    fontSize: 13,
-                                    color: AppColors.textPrimary,
-                                  ),
-                                ),
-                              ),
-                            ],
-                          ),
-                        );
-                      }),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 24),
-
-            // 5. Condition Estimate
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Card(
-                child: Padding(
-                  padding: const EdgeInsets.all(20.0),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
-                        children: [
-                          const Icon(
-                            Icons.workspace_premium_outlined,
-                            color: AppColors.goldDark,
-                            size: 20,
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'AI condition estimate',
-                              style: AppTypography.bodyMedium.copyWith(
-                                fontWeight: FontWeight.bold,
-                              ),
-                              overflow: TextOverflow.ellipsis,
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      Row(
-                        children: [
-                          Container(
-                            height: 60,
-                            width: 60,
-                            decoration: BoxDecoration(
-                              shape: BoxShape.circle,
-                              color: AppColors.gold.withValues(alpha: 0.1),
-                              border: Border.all(
-                                color: AppColors.gold,
-                                width: 1.5,
-                              ),
-                            ),
-                            alignment: Alignment.center,
-                            child: Text(
-                              c.estimatedGrade,
-                              style: AppTypography.goldLabel.copyWith(
-                                fontSize: 18,
-                              ),
-                            ),
-                          ),
-                          const SizedBox(width: 16),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  c.estimatedGrade.startsWith('MS')
-                                      ? 'Mint State Strike'
-                                      : 'Circulated Condition',
-                                  style: AppTypography.bodyMedium.copyWith(
-                                    fontWeight: FontWeight.bold,
-                                  ),
-                                ),
-                                const SizedBox(height: 4),
-                                Text(
-                                  'A photo-based estimate only. Expensive coins should be reviewed by a professional grading service.',
-                                  style: AppTypography.caption,
-                                ),
-                              ],
-                            ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 16),
-                      const Divider(),
-                      const SizedBox(height: 16),
-                      Text(c.gradeExplanation, style: AppTypography.bodyMuted),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 32),
-
-            // 6. Valuation & Price Trends Chart
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  Expanded(
-                    child: Text(
-                      'Value Guidance',
-                      style: AppTypography.sectionHeader,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  if (c.investmentRating.isNotEmpty) ...[
-                    const SizedBox(width: 12),
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.emeraldLight,
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Text(
-                        'Rating: ${c.investmentRating}',
-                        style: AppTypography.caption.copyWith(
-                          color: AppColors.emerald,
-                          fontWeight: FontWeight.bold,
-                        ),
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                'Collector value depends on grade, mint mark, rarity, errors, provenance, metal content and recent comparable sales. Treat this as a range, not a guaranteed market price.',
-                style: AppTypography.caption.copyWith(height: 1.45),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            // Pricing tags row
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Row(
-                children: [
-                  // One saved estimate is shown once, honestly labelled. It is
-                  // not split into separate retail / auction / dealer prices,
-                  // because no such market data exists for this coin.
-                  _PriceMetric(
-                    label: 'Saved estimate',
-                    value: _formatSavedAmount(c.retailPrice),
-                  ),
-                  const SizedBox(width: 12),
-                  _PriceMetric(
-                    label: 'Melt value',
-                    value: _formatSavedAmount(widget.vaultItem?.meltValue),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 24),
-
-            // Interactive Line Chart Container
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Container(
-                height: 240,
-                decoration: BoxDecoration(
-                  color: AppColors.surface,
-                  borderRadius: BorderRadius.circular(24),
-                  border: Border.all(color: AppColors.borderLight),
-                ),
-                padding: const EdgeInsets.all(20),
-                child: Column(
-                  children: [
-                    // Time selector
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 8,
-                      children: ['1 Month', '6 Months', '1 Year', '5 Years']
-                          .map((duration) {
-                            final isSel = _selectedChartDuration == duration;
-                            return GestureDetector(
-                              onTap: () {
-                                setState(() {
-                                  _selectedChartDuration = duration;
-                                });
-                              },
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 8,
-                                  vertical: 4,
-                                ),
-                                decoration: BoxDecoration(
-                                  color: isSel
-                                      ? AppColors.gold.withValues(alpha: 0.12)
-                                      : AppColors.surfaceWarm,
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                child: Text(
-                                  duration,
-                                  style: AppTypography.caption.copyWith(
-                                    color: isSel
-                                        ? AppColors.goldDark
-                                        : AppColors.textSecondary,
-                                    fontWeight: isSel
-                                        ? FontWeight.bold
-                                        : FontWeight.normal,
-                                  ),
-                                ),
-                              ),
-                            );
-                          })
-                          .toList(),
-                    ),
-                    const SizedBox(height: 28),
-
-                    // Chart viewport
-                    Expanded(
-                      child: prices.isEmpty
-                          ? Center(
-                              child: Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  const Icon(
-                                    Icons.show_chart_rounded,
-                                    size: 32,
-                                    color: AppColors.textMuted,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    'Historical auction price trend unavailable for this variety',
-                                    textAlign: TextAlign.center,
-                                    style: AppTypography.caption.copyWith(
-                                      color: AppColors.textSecondary,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : LineChart(
-                              LineChartData(
-                                gridData: const FlGridData(show: false),
-                                titlesData: const FlTitlesData(show: false),
-                                borderData: FlBorderData(show: false),
-                                lineBarsData: [
-                                  LineChartBarData(
-                                    spots: List.generate(prices.length, (idx) {
-                                      return FlSpot(idx.toDouble(), prices[idx]);
-                                    }),
-                                    isCurved: true,
-                                    color: AppColors.gold,
-                                    barWidth: 4,
-                                    isStrokeCapRound: true,
-                                    dotData: const FlDotData(show: false),
-                                    belowBarData: BarAreaData(
-                                      show: true,
-                                      color: AppColors.gold.withValues(alpha: 0.08),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 32),
-
-            // 7. Full Specifications Table
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                'Technical Specifications',
-                style: AppTypography.sectionHeader,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Table(
-                border: const TableBorder(
-                  bottom: BorderSide(color: AppColors.borderLight),
-                  horizontalInside: BorderSide(color: AppColors.borderLight),
-                ),
-                children: [
-                  _buildSpecRow('Country / Origin', c.country),
-                  _buildSpecRow(
-                    'Year of Issue',
-                    '${c.year < 0 ? '${c.year.abs()} BC' : c.year}',
-                  ),
-                  _buildSpecRow('Nominal Value', c.denomination),
-                  _buildSpecRow('Metal / Purity', c.composition),
-                  _buildSpecRow('Actual Weight', '${c.weightG} g'),
-                  _buildSpecRow('Diameter', '${c.diameterMm} mm'),
-                  _buildSpecRow('Thickness', '${c.thicknessMm} mm'),
-                  _buildSpecRow('Edge Type', c.edgeType),
-                  _buildSpecRow('Mint Mark', c.mintMark),
-                  _buildSpecRow('Master Engraver', c.designer),
-                ],
-              ),
-            ),
-
-            const SizedBox(height: 32),
-
-            // 8. Historical Timeline & Essay Section
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: Text(
-                'Historical Background',
-                style: AppTypography.sectionHeader,
-              ),
-            ),
-            const SizedBox(height: 16),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: _buildMuseumTimeline(c),
-            ),
-
-            const SizedBox(height: 32),
-
-            // 9. Save to Collection Vault Fields Manager
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: GlassCard(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                      children: [
-                        Expanded(
-                          child: Text(
-                            'Vault Storage Management',
-                            style: AppTypography.bodyMedium.copyWith(
-                              fontWeight: FontWeight.bold,
-                            ),
-                            overflow: TextOverflow.ellipsis,
-                          ),
-                        ),
-                        Switch.adaptive(
-                          value: _isSavedInVault,
-                          activeTrackColor: AppColors.gold,
-                          onChanged: (val) {
-                            setState(() {
-                              _isSavedInVault = val;
-                            });
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(
-                                backgroundColor: val
-                                    ? AppColors.emerald
-                                    : AppColors.crimson,
-                                content: Text(
-                                  val
-                                      ? 'Item successfully saved to Collection Vault.'
-                                      : 'Removed from Collection Vault.',
-                                  style: AppTypography.buttonText,
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
-                    if (_isSavedInVault) ...[
-                      const SizedBox(height: 20),
-                      Text('Purchase Price (\$)', style: AppTypography.caption),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _purchasePriceController,
-                        style: AppTypography.bodyMedium,
-                        keyboardType: TextInputType.number,
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: AppColors.surface,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text(
-                        'Purchase Origin / Seller',
-                        style: AppTypography.caption,
-                      ),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _purchaseLocationController,
-                        style: AppTypography.bodyMedium,
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: AppColors.surface,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 12,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      Text('Storage Vault Box', style: AppTypography.caption),
-                      const SizedBox(height: 8),
-                      DropdownButtonFormField<String>(
-                        initialValue: _storageLocation,
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: AppColors.surface,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding: const EdgeInsets.symmetric(
-                            horizontal: 16,
-                            vertical: 6,
-                          ),
-                        ),
-                        items:
-                            [
-                              'Home Vault',
-                              'Safe Deposit Box A',
-                              'Safe Deposit Box B',
-                              'Display Cabinet',
-                            ].map((loc) {
-                              return DropdownMenuItem(
-                                value: loc,
-                                child: Text(
-                                  loc,
-                                  style: AppTypography.bodyMedium,
-                                ),
-                              );
-                            }).toList(),
-                        onChanged: (val) {
-                          if (val != null) {
-                            setState(() {
-                              _storageLocation = val;
-                            });
-                          }
-                        },
-                      ),
-                      const SizedBox(height: 16),
-                      Text('Personal Notes', style: AppTypography.caption),
-                      const SizedBox(height: 8),
-                      TextFormField(
-                        controller: _notesController,
-                        style: AppTypography.bodyMedium,
-                        maxLines: 3,
-                        decoration: InputDecoration(
-                          filled: true,
-                          fillColor: AppColors.surface,
-                          border: OutlineInputBorder(
-                            borderRadius: BorderRadius.circular(10),
-                            borderSide: BorderSide.none,
-                          ),
-                          contentPadding: const EdgeInsets.all(12),
-                        ),
-                      ),
-                      const SizedBox(height: 16),
-                      SizedBox(
-                        width: double.infinity,
-                        child: GoldButton(
-                          text: 'Save Vault Changes',
-                          size: GoldButtonSize.compact,
-                          onPressed: _saveVaultChanges,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 60),
-
-            // Bottom CTA for return
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 24),
-              child: SizedBox(
-                width: double.infinity,
-                child: GoldButton(
-                  text: 'Back to Vault',
-                  onPressed: () {
-                    Navigator.of(context).pop();
+                  onChanged: (v) {
+                    if (v != null) setState(() => _storageLocation = v);
                   },
                 ),
-              ),
+                const SizedBox(height: AppSpacing.base),
+                Text('Notes', style: AppTypography.caption),
+                const SizedBox(height: AppSpacing.xs),
+                TextField(
+                  controller: _notesController,
+                  minLines: 2,
+                  maxLines: 6,
+                  decoration: const InputDecoration(hintText: 'Add your own notes'),
+                ),
+                const SizedBox(height: AppSpacing.lg),
+                GoldButton(
+                  text: 'Save changes',
+                  isLoading: _isSaving,
+                  onPressed: _isSaving ? null : _saveChanges,
+                ),
+              ],
             ),
-
-            const SizedBox(height: 120),
           ],
         ),
       ),
     );
   }
+}
 
-  int _getRarityBarValue(RarityLevel level) {
-    switch (level) {
-      case RarityLevel.common:
-        return 0;
-      case RarityLevel.uncommon:
-        return 1;
-      case RarityLevel.rare:
-        return 2;
-      case RarityLevel.veryRare:
-        return 3;
-      case RarityLevel.extremelyRare:
-        return 4;
-      case RarityLevel.museumGrade:
-        return 5;
-    }
+/// Formats a recorded amount with its currency, or an em dash when none exists.
+String formatVaultAmount(double? amount, String currencyCode) {
+  if (amount == null || amount.isNaN || amount.isInfinite || amount <= 0) {
+    return '—';
   }
+  if (currencyCode.toUpperCase() == 'USD') return '\$${amount.toStringAsFixed(2)}';
+  return '${amount.toStringAsFixed(2)} ${currencyCode.toUpperCase()}';
+}
 
-  TableRow _buildSpecRow(String label, String value) {
-    return TableRow(
+class _PhotoPanel extends StatelessWidget {
+  final VaultCoinItem item;
+  final bool showFront;
+  final ValueChanged<bool> onToggle;
+
+  const _PhotoPanel({required this.item, required this.showFront, required this.onToggle});
+
+  @override
+  Widget build(BuildContext context) {
+    final path = showFront ? item.frontImagePath : item.reverseImagePath;
+    final hasPhoto = !kIsWeb && path != null && path.isNotEmpty && File(path).existsSync();
+    final hasReverse = item.reverseImagePath != null && item.reverseImagePath!.isNotEmpty;
+
+    return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 14.0),
-          child: Text(label, style: AppTypography.caption),
-        ),
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 14.0),
-          child: Text(
-            value,
-            style: AppTypography.bodyMedium.copyWith(
-              fontWeight: FontWeight.bold,
-            ),
-            textAlign: TextAlign.right,
+        Container(
+          height: 240,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: AppColors.surfaceWarm,
+            borderRadius: AppRadius.allXl,
+            border: Border.all(color: AppColors.border),
           ),
+          clipBehavior: Clip.antiAlias,
+          alignment: Alignment.center,
+          child: hasPhoto
+              ? Image.file(
+                  File(path),
+                  fit: BoxFit.contain,
+                  errorBuilder: (_, __, ___) => const _NoPhoto(),
+                )
+              : Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    CoinGlyph.forComposition(
+                      size: 120,
+                      composition: item.composition ?? '',
+                      isBanknote: false,
+                      semanticLabel: 'Coin illustration',
+                    ),
+                    const SizedBox(height: AppSpacing.sm),
+                    const _NoPhoto(),
+                  ],
+                ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        SegmentedButton<bool>(
+          segments: const [
+            ButtonSegment(value: true, label: Text('Front')),
+            ButtonSegment(value: false, label: Text('Reverse')),
+          ],
+          selected: {showFront},
+          onSelectionChanged: (s) => onToggle(s.first),
+          showSelectedIcon: false,
+        ),
+        if (!hasReverse && !showFront)
+          Padding(
+            padding: const EdgeInsets.only(top: AppSpacing.xs),
+            child: Text('No reverse photo was saved.', style: AppTypography.caption),
+          ),
+      ],
+    );
+  }
+}
+
+class _NoPhoto extends StatelessWidget {
+  const _NoPhoto();
+
+  @override
+  Widget build(BuildContext context) =>
+      Text('No photo available', style: AppTypography.caption);
+}
+
+class _IdentificationCard extends StatelessWidget {
+  final VaultCoinItem item;
+
+  const _IdentificationCard({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final level = item.confidenceLevel?.trim();
+    return _DetailCard(
+      icon: Icons.fact_check_outlined,
+      title: 'Identification',
+      children: [
+        _KeyValue(
+          'Identification confidence',
+          (level == null || level.isEmpty) ? 'Not recorded' : level,
+        ),
+        const SizedBox(height: AppSpacing.md),
+        if (item.keyEvidence.isEmpty)
+          Text('No evidence details were saved with this coin.', style: AppTypography.caption)
+        else ...[
+          Text('Evidence recorded at scan time', style: AppTypography.caption),
+          const SizedBox(height: AppSpacing.xs),
+          for (final e in item.keyEvidence)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 3),
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Padding(
+                    padding: EdgeInsets.only(top: 7),
+                    child: Icon(Icons.circle, size: 5, color: AppColors.goldDark),
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  Expanded(child: Text(e, style: AppTypography.bodyMedium.copyWith(fontSize: 13))),
+                ],
+              ),
+            ),
+        ],
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          'Authenticity: not assessed. Photo recognition identifies the coin type; '
+          'it cannot authenticate coins or detect counterfeits.',
+          style: AppTypography.caption,
         ),
       ],
     );
   }
+}
 
-  Widget _buildMuseumTimeline(CollectibleModel c) {
-    List<Map<String, String>> timelineData;
-    if (c.id == 'coin_saint_gaudens') {
-      timelineData = [
-        {
-          'year': '1905',
-          'title': 'Roosevelt Initiative',
-          'desc':
-              'President Theodore Roosevelt commissions sculptor Augustus Saint-Gaudens to redesign US coinage.',
-        },
-        {
-          'year': '1907',
-          'title': 'First High Relief Strikes',
-          'desc':
-              'First 11,250 high relief coins struck. The rim type was modified to flat to accommodate vault stackings.',
-        },
-        {
-          'year': '1933',
-          'title': 'Executive Order Recall',
-          'desc':
-              'Executive Order 6102 outlaws gold ownership, ordering the melting of virtually all 1933 Double Eagles.',
-        },
-      ];
-    } else if (c.id == 'coin_athenian_owl') {
-      timelineData = [
-        {
-          'year': '454 BC',
-          'title': 'Treasury Relocation',
-          'desc':
-              'Athens relocates the Delian League treasury to the Acropolis, funding massive Owl coin production.',
-        },
-        {
-          'year': '440 BC',
-          'title': 'Classical Mint Peak',
-          'desc':
-              'Owl designs reach their aesthetic pinnacle under master craftsmen during the height of the Golden Age.',
-        },
-        {
-          'year': '404 BC',
-          'title': 'Peloponnesian Defeat',
-          'desc':
-              'Athens surrenders to Sparta, leading to temporary closures of the municipal minting treasuries.',
-        },
-      ];
-    } else {
-      timelineData = [
-        {
-          'year': '${c.year - 2}',
-          'title': 'Engraving Masterwork',
-          'desc':
-              'Initial die models drafted and approved by the central mint committee.',
-        },
-        {
-          'year': '${c.year}',
-          'title': 'Inaugural Strike Release',
-          'desc':
-              'First series batch released into standard commercial circulation channels.',
-        },
-        {
-          'year': '${c.year + 10}',
-          'title': 'Design Retirement',
-          'desc':
-              'Dies retired or updated to newer commemorative variation profiles.',
-        },
-      ];
-    }
+class _ValueCard extends StatelessWidget {
+  final VaultCoinItem item;
 
+  const _ValueCard({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final code = item.currencyCode;
+    return _DetailCard(
+      icon: Icons.payments_outlined,
+      title: 'Value',
+      children: [
+        Row(
+          children: [
+            _PriceMetric(
+              label: 'Saved estimate',
+              value: formatVaultAmount(item.currentEstimatedValue, code),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            _PriceMetric(label: 'Melt value', value: formatVaultAmount(item.meltValue, code)),
+          ],
+        ),
+        if (item.valuationRange != null && item.valuationRange!.isNotEmpty) ...[
+          const SizedBox(height: AppSpacing.md),
+          _KeyValue('Market range (at scan time)', item.valuationRange!),
+        ],
+        const SizedBox(height: AppSpacing.md),
+        Text(
+          'Values were recorded when you saved this coin and are not updated '
+          'automatically. Melt value covers metal content only.',
+          style: AppTypography.caption,
+        ),
+      ],
+    );
+  }
+}
+
+class _CatalogueCard extends StatelessWidget {
+  final VaultCoinItem item;
+
+  const _CatalogueCard({required this.item});
+
+  @override
+  Widget build(BuildContext context) {
+    final rows = <(String, String)>[
+      if (item.mintMark != null && item.mintMark!.isNotEmpty) ('Mint mark', item.mintMark!),
+      if (item.composition != null && item.composition!.isNotEmpty)
+        ('Composition', item.composition!),
+      if (item.weightG != null && item.weightG! > 0) ('Weight', '${item.weightG} g'),
+      if (item.diameterMm != null && item.diameterMm! > 0) ('Diameter', '${item.diameterMm} mm'),
+      if (item.kmNumber != null && item.kmNumber!.isNotEmpty) ('Catalogue number', item.kmNumber!),
+      if (item.numistaId != null) ('Numista', 'N# ${item.numistaId}'),
+    ];
+    return _DetailCard(
+      icon: Icons.menu_book_rounded,
+      title: 'Catalogue details',
+      children: [
+        if (rows.isEmpty)
+          Text('No catalogue details were saved for this coin.', style: AppTypography.caption)
+        else ...[
+          for (final (label, value) in rows) _KeyValue(label, value),
+          const SizedBox(height: AppSpacing.sm),
+          Text(
+            'Standard specifications for the matched coin type, not measurements of your coin.',
+            style: AppTypography.caption,
+          ),
+        ],
+      ],
+    );
+  }
+}
+
+class _DetailCard extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final List<Widget> children;
+
+  const _DetailCard({required this.icon, required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.all(AppSpacing.lg),
       decoration: BoxDecoration(
-        color: AppColors.surface,
-        borderRadius: BorderRadius.circular(24),
-        border: Border.all(color: AppColors.borderLight),
+        color: AppColors.cardBg,
+        borderRadius: AppRadius.allLg,
+        border: Border.all(color: AppColors.border),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Row(
             children: [
-              const Icon(
-                Icons.museum_outlined,
-                color: AppColors.goldDark,
-                size: 20,
-              ),
-              const SizedBox(width: 8),
-              Text(
-                'MUSEUM TIMELINE MODE',
-                style: AppTypography.goldLabel.copyWith(fontSize: 10),
-              ),
+              Icon(icon, size: 20, color: AppColors.goldDark),
+              const SizedBox(width: AppSpacing.sm),
+              Text(title, style: AppTypography.titleSmall.copyWith(fontWeight: FontWeight.w700)),
             ],
           ),
-          const SizedBox(height: 20),
-          ...List.generate(timelineData.length, (idx) {
-            final t = timelineData[idx];
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                // Timeline column
-                Column(
-                  children: [
-                    Container(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 4,
-                      ),
-                      decoration: BoxDecoration(
-                        color: AppColors.gold.withValues(alpha: 0.12),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(color: AppColors.gold, width: 1),
-                      ),
-                      child: Text(
-                        t['year']!,
-                        style: AppTypography.goldLabel.copyWith(fontSize: 10),
-                      ),
-                    ),
-                    if (idx < timelineData.length - 1)
-                      Container(height: 50, width: 2, color: AppColors.border),
-                  ],
-                ),
-                const SizedBox(width: 16),
-
-                // Content column
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        t['title']!,
-                        style: AppTypography.bodyMedium.copyWith(
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      const SizedBox(height: 4),
-                      Text(
-                        t['desc']!,
-                        style: AppTypography.caption.copyWith(height: 1.4),
-                      ),
-                      const SizedBox(height: 16),
-                    ],
-                  ),
-                ),
-              ],
-            );
-          }),
-          const SizedBox(height: 8),
-          Text(
-            c.historicalInfo,
-            style: AppTypography.bodyMuted.copyWith(height: 1.5, fontSize: 13),
-          ),
+          const SizedBox(height: AppSpacing.md),
+          ...children,
         ],
       ),
     );
   }
 }
 
-/// Formats a stored amount, or an em dash when no real value exists.
-String _formatSavedAmount(double? amount) {
-  if (amount == null || amount.isNaN || amount.isInfinite || amount <= 0) {
-    return '—';
+class _KeyValue extends StatelessWidget {
+  final String label;
+  final String value;
+
+  const _KeyValue(this.label, this.value);
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: Text(label, style: AppTypography.bodyMuted)),
+          const SizedBox(width: AppSpacing.md),
+          Flexible(
+            child: Text(
+              value,
+              textAlign: TextAlign.end,
+              style: AppTypography.bodyMedium.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ),
+        ],
+      ),
+    );
   }
-  if (amount >= 1000) return '\$${(amount / 1000).toStringAsFixed(1)}k';
-  return '\$${amount.toStringAsFixed(2)}';
 }
 
 class _PriceMetric extends StatelessWidget {
@@ -1307,164 +541,24 @@ class _PriceMetric extends StatelessWidget {
   Widget build(BuildContext context) {
     return Expanded(
       child: Container(
-        padding: const EdgeInsets.all(12),
+        padding: const EdgeInsets.all(AppSpacing.md),
         decoration: BoxDecoration(
           color: AppColors.surface,
-          borderRadius: BorderRadius.circular(16),
+          borderRadius: AppRadius.allMd,
           border: Border.all(color: AppColors.borderLight),
         ),
         child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(label, style: AppTypography.caption),
             const SizedBox(height: 4),
             Text(
               value,
-              style: AppTypography.sectionHeader.copyWith(
-                fontSize: 16,
-                color: AppColors.goldDark,
-              ),
+              style: AppTypography.numericMedium.copyWith(fontSize: 17, color: AppColors.goldInk),
             ),
           ],
         ),
       ),
     );
   }
-}
-
-class DetailedCoinGraphicPainter extends CustomPainter {
-  final CollectibleModel collectible;
-  final bool isFront;
-
-  DetailedCoinGraphicPainter({
-    required this.collectible,
-    required this.isFront,
-  });
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final center = Offset(size.width / 2, size.height / 2);
-    final paint = Paint()..isAntiAlias = true;
-
-    // Draw gold or silver composition gradient based on coin model
-    final isGold = collectible.composition.toLowerCase().contains('gold');
-
-    final gradient = RadialGradient(
-      colors: isGold
-          ? [AppColors.goldLight, AppColors.gold, AppColors.goldDark]
-          : [Colors.white, AppColors.border, AppColors.textSecondary],
-      stops: const [0.1, 0.7, 1.0],
-    ).createShader(Rect.fromCircle(center: center, radius: size.width / 2));
-
-    paint.shader = gradient;
-    canvas.drawCircle(center, size.width / 2, paint);
-
-    // Decorative inner rim
-    paint.shader = null;
-    paint.style = PaintingStyle.stroke;
-    paint.strokeWidth = 2;
-    paint.color = Colors.white.withValues(alpha: 0.3);
-    canvas.drawCircle(center, size.width / 2 - 12, paint);
-
-    // Core symbol representations
-    paint.style = PaintingStyle.fill;
-    paint.color = (isGold ? AppColors.goldDark : AppColors.textPrimary)
-        .withValues(alpha: 0.3);
-
-    if (isFront) {
-      // Draw a silhouette portrait/liberty head representation
-      final path = Path()
-        ..moveTo(center.dx - 10, center.dy + 35)
-        ..lineTo(center.dx + 10, center.dy + 35)
-        ..quadraticBezierTo(
-          center.dx + 5,
-          center.dy + 15,
-          center.dx + 10,
-          center.dy,
-        )
-        ..quadraticBezierTo(
-          center.dx + 25,
-          center.dy - 10,
-          center.dx + 10,
-          center.dy - 30,
-        )
-        ..quadraticBezierTo(
-          center.dx - 20,
-          center.dy - 25,
-          center.dx - 15,
-          center.dy - 5,
-        )
-        ..quadraticBezierTo(
-          center.dx - 25,
-          center.dy + 15,
-          center.dx - 10,
-          center.dy + 35,
-        );
-      canvas.drawPath(path, paint);
-
-      // Star borders
-      paint.color = Colors.white.withValues(alpha: 0.4);
-      for (int i = 0; i < 12; i++) {
-        final angle = i * pi / 6;
-        final starLoc = Offset(
-          center.dx + (size.width / 2 - 20) * cos(angle),
-          center.dy + (size.width / 2 - 20) * sin(angle),
-        );
-        canvas.drawCircle(starLoc, 2.5, paint);
-      }
-    } else {
-      // Draw reverse design representation (Eagle or Owl depending on details)
-      if (collectible.id == 'coin_athenian_owl') {
-        // Draw Athenian owl reverse silhouette
-        paint.color = AppColors.textPrimary.withValues(alpha: 0.45);
-        canvas.drawCircle(Offset(center.dx - 10, center.dy - 10), 8, paint);
-        canvas.drawCircle(Offset(center.dx + 10, center.dy - 10), 8, paint);
-        canvas.drawOval(
-          Rect.fromCenter(
-            center: Offset(center.dx, center.dy + 10),
-            width: 25,
-            height: 30,
-          ),
-          paint,
-        );
-      } else {
-        // Draw standard flying eagle reverse silhouette
-        final eaglePath = Path()
-          ..moveTo(center.dx - 45, center.dy - 10)
-          ..quadraticBezierTo(
-            center.dx - 10,
-            center.dy - 15,
-            center.dx,
-            center.dy - 5,
-          )
-          ..quadraticBezierTo(
-            center.dx + 10,
-            center.dy - 15,
-            center.dx + 45,
-            center.dy - 10,
-          )
-          ..quadraticBezierTo(
-            center.dx + 10,
-            center.dy + 5,
-            center.dx + 5,
-            center.dy + 25,
-          )
-          ..quadraticBezierTo(
-            center.dx,
-            center.dy + 15,
-            center.dx - 5,
-            center.dy + 25,
-          )
-          ..quadraticBezierTo(
-            center.dx - 10,
-            center.dy + 5,
-            center.dx - 45,
-            center.dy - 10,
-          );
-        canvas.drawPath(eaglePath, paint);
-      }
-    }
-  }
-
-  @override
-  bool shouldRepaint(covariant DetailedCoinGraphicPainter oldDelegate) => true;
 }

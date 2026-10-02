@@ -14,6 +14,7 @@ from backend.app.api.account import account_store
 from backend.app.main import app
 from backend.app.models.domain import RecognitionEvidenceType
 from backend.app.security.quota_service import quota_engine
+from backend.app.security.guest_quota import guest_allowance
 from backend.app.services.numista.client import (
     NumistaClient,
     NumistaTypeDetail,
@@ -60,8 +61,8 @@ def test_recognition_reports_unavailable_when_catalogue_not_configured(monkeypat
     assert body["processingMetadata"]["catalogue_source"] == "unavailable"
     # Nothing that looks like a fixture/fake coin leaks through
     assert "Morgan" not in resp.text and "George V" not in resp.text
-    # The user is not charged for an outage
-    assert quota_engine.get_current_usage("anon_ip_testclient") == 0
+    # The user is not charged for an outage (the guest slot was given back)
+    assert all(v == 0 for v in guest_allowance.store._local.values())
 
 
 def test_fixture_results_are_labelled_and_not_attributed_to_numista(monkeypatch):
